@@ -7,7 +7,8 @@ import type { ScoreResult } from '../types/index';
 import type { StudySnapshot, GeneratedReport } from '../types/report';
 
 const CLAUDE_URL = '/anthropic/v1/messages';
-const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
+import { ANTHROPIC_MODEL } from '../config/aiConfig';
+
 
 function getApiKey(): string {
   return import.meta.env.VITE_CLAUDE_API_KEY as string;
@@ -49,11 +50,13 @@ export async function scoreAnswers(
     '  "winner": "A"\n' +
     '}';
 
+  console.log(`Using Anthropic model: ${ANTHROPIC_MODEL}`);
   const response = await fetch(CLAUDE_URL, {
     method: 'POST',
     headers: buildHeaders(),
     body: JSON.stringify({
-      model: CLAUDE_MODEL,
+      model: ANTHROPIC_MODEL,
+
       max_tokens: 1000,
       messages: [{ role: 'user', content: prompt }],
     }),
@@ -136,11 +139,13 @@ Return ONLY valid JSON, no extra text:
 
   if (!apiKey) return buildMockSchedule(gaps);
 
+  console.log(`Using Anthropic model: ${ANTHROPIC_MODEL}`);
   const response = await fetch(CLAUDE_URL, {
     method: 'POST',
     headers: buildHeaders(),
     body: JSON.stringify({
-      model: CLAUDE_MODEL,
+      model: ANTHROPIC_MODEL,
+
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }],
     }),
@@ -212,11 +217,13 @@ Return this exact JSON structure:
 
   if (!apiKey) return buildMockReport(snapshot);
 
+  console.log(`Using Anthropic model: ${ANTHROPIC_MODEL}`);
   const response = await fetch(CLAUDE_URL, {
     method: 'POST',
     headers: buildHeaders(),
     body: JSON.stringify({
-      model: CLAUDE_MODEL,
+      model: ANTHROPIC_MODEL,
+
       max_tokens: 2048,
       system: 'You are an expert academic performance analyst. Return ONLY valid JSON, no markdown, no backticks.',
       messages: [{ role: 'user', content: userPrompt }],

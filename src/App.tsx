@@ -35,6 +35,7 @@ const App: React.FC = () => {
   const [uploadedContent, setUploadedContent] = useState<string>('');
   const setSession = useStore((state) => state.setSession);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [challengeSessionKey, setChallengeSessionKey] = useState<number>(0);
 
   useEffect(() => { 
     setSession(DEMO_SESSION); 
@@ -43,15 +44,21 @@ const App: React.FC = () => {
   const goToUpload = () => setActiveTab(1);
   
   const handleStartChallenge = async (fileName: string = "Manual Upload") => {
-    if (!uploadedContent.trim()) return;
+    if (!uploadedContent.trim()) {
+      console.warn("[App] Cannot start challenge: uploadedContent is empty.");
+      return;
+    }
     
+    console.log(`[App] handleStartChallenge started for: ${fileName}`);
     setIsSaving(true);
     try {
-      await saveDocument(fileName, uploadedContent);
+      const docId = await saveDocument(fileName, uploadedContent);
+      console.log(`[App] Firebase success! Document ID: ${docId}. Switching to Challenge tab...`);
+      setChallengeSessionKey(prev => prev + 1); // Force Challenge reload
       setActiveTab(2);
     } catch (error) {
-      console.error("Failed to save document:", error);
-      alert("Failed to save study material. Please check your Firebase configuration.");
+      console.error("[App] Failed to save document: ", error);
+      alert("Failed to save study material. Please check your Firebase configuration and permissions.");
     } finally {
       setIsSaving(false);
     }
@@ -85,7 +92,7 @@ const App: React.FC = () => {
         )}
         {activeTab === 2 && (
           <div className="container mx-auto px-6 py-8 animate-fade-in">
-            <ReasoningChallenge />
+            <ReasoningChallenge key={challengeSessionKey} />
           </div>
         )}
         {activeTab === 3 && (

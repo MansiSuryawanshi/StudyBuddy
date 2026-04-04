@@ -12,11 +12,18 @@ export interface GeneratedQuestion {
   sourceTopic?: string;
 }
 
+import { ANTHROPIC_MODEL } from "../config/aiConfig";
+
+
 /**
  * Generates a quiz from the provided study material using the Claude API.
  */
 export async function generateQuizFromContent(content: string): Promise<GeneratedQuestion[]> {
   const apiKey = import.meta.env.VITE_CLAUDE_API_KEY;
+  
+  console.log(`Using Anthropic model: ${ANTHROPIC_MODEL}`);
+  console.log(`[QuizService] Generating quiz using model: ${ANTHROPIC_MODEL}`);
+
   
   const prompt = `
     You are an expert educational content generator. Analyze the following study material and generate a high-quality quiz.
@@ -55,7 +62,8 @@ export async function generateQuizFromContent(content: string): Promise<Generate
         "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-20240620",
+        model: ANTHROPIC_MODEL,
+
         max_tokens: 2000,
         messages: [{ role: "user", content: prompt }],
       }),
