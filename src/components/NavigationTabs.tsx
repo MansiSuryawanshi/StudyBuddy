@@ -4,7 +4,7 @@
  */
 import React from 'react';
 
-export type TabId = 'challenge' | 'exam-prep' | 'history' | 'schedule';
+export type TabId = 'challenge' | 'exam-prep' | 'history' | 'schedule' | 'report';
 
 interface NavigationTabsProps {
   activeTab: TabId;
@@ -16,6 +16,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'exam-prep', label: 'Exam Prep' },
   { id: 'history', label: 'Results History' },
   { id: 'schedule', label: 'Study Schedule' },
+  { id: 'report', label: 'Study Report' },
 ];
 
 export const NavigationTabs: React.FC<NavigationTabsProps> = ({ activeTab, onTabChange }) => {

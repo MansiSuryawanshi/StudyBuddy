@@ -1,6 +1,5 @@
 /**
  * Study Schedule tab — adaptive weekly plan based on concept gaps from the quiz.
- * Reads concept gaps from the store, calls Claude to generate a gap-targeted schedule.
  */
 import React, { useState, useEffect, useRef } from 'react';
 import type { ScheduleResponse } from '../types';
@@ -18,15 +17,13 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
   const cachedSchedule = useStore((state) => state.schedule);
   const setSchedule = useStore((state) => state.setSchedule);
 
-  // Derive concept gaps from all session scores
   const scores = Object.values(session?.scores ?? {});
   const conceptGaps = [...new Set([
     ...scores.map((s) => s.student_a.concept_gap).filter((g): g is string => g !== null),
     ...scores.map((s) => s.student_b.concept_gap).filter((g): g is string => g !== null),
   ])];
   const avgScore =
-    scores.length === 0
-      ? 0
+    scores.length === 0 ? 0
       : Math.round(scores.reduce((sum, s) => sum + s.student_a.total, 0) / scores.length);
 
   const [localSchedule, setLocalSchedule] = useState<ScheduleResponse | null>(cachedSchedule);
@@ -34,7 +31,6 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
   const [error, setError] = useState<string | null>(null);
   const [newGapsNudge, setNewGapsNudge] = useState(false);
 
-  // Track previous gap count to show "new gaps" nudge
   const prevGapCount = useRef(conceptGaps.length);
 
   useEffect(() => {
@@ -44,7 +40,6 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
     prevGapCount.current = conceptGaps.length;
   }, [conceptGaps.length, localSchedule]);
 
-  // Auto-generate on mount if gaps exist and no schedule cached
   useEffect(() => {
     if (conceptGaps.length > 0 && localSchedule === null) {
       void fetchSchedule();
@@ -73,125 +68,65 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
   // ── Empty state ──────────────────────────────────────────────────────────
   if (conceptGaps.length === 0 && localSchedule === null) {
     return (
-      <div style={{ padding: '48px 24px', textAlign: 'center', maxWidth: '480px', margin: '0 auto' }}>
-        <div style={{ fontSize: '36px', marginBottom: '16px' }}>📅</div>
-        <p
-          style={{
-            fontSize: '15px',
-            color: 'var(--text-h)',
-            fontWeight: 500,
-            marginBottom: '8px',
-          }}
-        >
-          No plan yet
-        </p>
-        <p style={{ color: 'var(--text)', fontSize: '14px', lineHeight: 1.6, marginBottom: '24px' }}>
-          Complete a Reasoning Challenge first to get your personalized plan
-        </p>
-        <button
-          onClick={onSwitchToChallenge}
-          style={{
-            padding: '9px 22px',
-            borderRadius: '8px',
-            background: 'var(--accent)',
-            color: '#fff',
-            border: 'none',
-            fontSize: '14px',
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          Start a challenge
-        </button>
+      <div className="min-h-[70vh] flex flex-col items-center justify-center px-6 text-center">
+        {/* Glow orb */}
+        <div className="orb w-64 h-64 bg-purple-600/20 -z-10 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 absolute" />
+
+        <div className="animate-slide-up">
+          <div className="text-5xl mb-6">📅</div>
+          <h2 className="text-4xl md:text-5xl font-black text-white mb-3 tracking-tight leading-tight">
+            No Plan{' '}
+            <span className="gradient-text">Yet</span>
+          </h2>
+          <p className="text-gray-400 text-lg mb-10 max-w-sm leading-relaxed">
+            Complete a Reasoning Challenge to unlock your personalized adaptive study plan
+          </p>
+          <button
+            onClick={onSwitchToChallenge}
+            className="btn-premium px-10 py-4 rounded-2xl text-white text-base font-bold shadow-2xl shadow-purple-500/30"
+          >
+            Start a Challenge →
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '700px', margin: '0 auto' }}>
+    <div className="px-6 md:px-12 py-10 max-w-3xl mx-auto">
 
-      {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          marginBottom: '4px',
-        }}
-      >
-        <div>
-          <h2 style={{ margin: 0, fontSize: '20px', color: 'var(--text-h)' }}>
-            This week · Adaptive plan
-          </h2>
-          <p style={{ color: 'var(--text)', fontSize: '13px', marginTop: '4px' }}>
-            Based on your concept gaps
-          </p>
+      {/* Hero heading */}
+      <div className="mb-8 animate-slide-up">
+        <h1 className="text-4xl md:text-5xl font-black text-white tracking-tight leading-tight mb-2">
+          This Week ·{' '}
+          <span className="gradient-text">Adaptive Plan</span>
+        </h1>
+        <div className="flex items-center gap-3 mt-2">
+          <p className="text-gray-400 text-base">Based on your concept gaps</p>
+          {totalSessions > 0 && (
+            <span className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs font-semibold">
+              {totalSessions} sessions planned
+            </span>
+          )}
         </div>
-        {totalSessions > 0 && (
-          <span
-            style={{
-              padding: '4px 11px',
-              borderRadius: '999px',
-              background: '#E1F5EE',
-              color: '#085041',
-              fontSize: '12px',
-              fontWeight: 600,
-              whiteSpace: 'nowrap',
-              marginTop: '4px',
-            }}
-          >
-            {totalSessions} sessions left
-          </span>
-        )}
       </div>
 
       {/* Priority / readiness banner */}
       {localSchedule?.readiness_message && (
-        <div
-          style={{
-            margin: '12px 0 18px',
-            padding: '10px 14px',
-            borderRadius: '8px',
-            background: 'var(--accent-bg)',
-            border: '1px solid var(--accent-border)',
-            fontSize: '13px',
-            color: 'var(--accent)',
-          }}
-        >
-          <strong>Priority gap:</strong> {localSchedule.priority_gap} —{' '}
-          {localSchedule.readiness_message}
+        <div className="mb-6 p-4 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-sm text-purple-300 animate-fade-in">
+          <span className="font-semibold text-purple-200">Priority gap: </span>
+          <span className="text-white font-medium">{localSchedule.priority_gap}</span>
+          {' '} — {localSchedule.readiness_message}
         </div>
       )}
 
       {/* New gaps nudge */}
       {newGapsNudge && (
-        <div
-          style={{
-            margin: '0 0 16px',
-            padding: '10px 14px',
-            borderRadius: '8px',
-            background: '#FAECE7',
-            border: '1px solid #f5c6c0',
-            fontSize: '13px',
-            color: '#712B13',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
-          <span>New gaps detected — regenerate plan?</span>
+        <div className="mb-5 p-4 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex justify-between items-center animate-fade-in">
+          <span className="text-sm text-orange-300">New gaps detected — regenerate your plan?</span>
           <button
             onClick={() => void fetchSchedule()}
-            style={{
-              background: '#712B13',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '4px 12px',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
+            className="ml-4 shrink-0 bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/30 text-orange-200 rounded-xl px-4 py-1.5 text-xs font-bold transition-all cursor-pointer"
           >
             Regenerate
           </button>
@@ -203,31 +138,23 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
 
       {/* Loading */}
       {loading && (
-        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text)', fontSize: '14px' }}>
-          <div style={{ fontSize: '22px', marginBottom: '10px' }}>⏳</div>
-          Generating your adaptive plan...
+        <div className="text-center py-20">
+          <div className="text-5xl mb-5 animate-bounce-dot" style={{ animationDuration: '1s' }}>⏳</div>
+          <p className="text-gray-400 text-base">Generating your adaptive plan...</p>
+          <p className="text-gray-600 text-sm mt-1">Claude is thinking hard for you</p>
         </div>
       )}
 
       {/* Error */}
       {error && (
-        <div
-          style={{
-            padding: '12px 16px',
-            borderRadius: '8px',
-            background: '#FAECE7',
-            color: '#712B13',
-            fontSize: '13px',
-            marginBottom: '16px',
-          }}
-        >
-          {error}
+        <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm mb-6">
+          <span className="font-semibold">Error: </span>{error}
         </div>
       )}
 
       {/* Day cards */}
       {!loading && localSchedule && (
-        <div>
+        <div className="space-y-3 animate-fade-in">
           {localSchedule.schedule.map((day, i) => (
             <DayScheduleCard key={i} day={day} />
           ))}
@@ -236,21 +163,12 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
 
       {/* Regenerate button */}
       {!loading && (
-        <div style={{ textAlign: 'center', marginTop: '8px' }}>
+        <div className="text-center mt-8">
           <button
             onClick={() => void fetchSchedule()}
-            style={{
-              padding: '9px 22px',
-              borderRadius: '8px',
-              background: 'transparent',
-              color: 'var(--accent)',
-              border: '1px solid var(--accent-border)',
-              fontSize: '14px',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
+            className="btn-outline px-8 py-3 rounded-2xl text-purple-400 text-sm font-bold border border-purple-500/30 hover:border-purple-500/60 transition-all cursor-pointer"
           >
-            Regenerate plan
+            Regenerate Plan
           </button>
         </div>
       )}

@@ -11,12 +11,13 @@ interface SessionSlotProps {
   topicTag: string;
   duration: string;
   badgeType: BadgeType;
+  isLast?: boolean;
 }
 
-const BADGE_STYLES: Record<BadgeType, React.CSSProperties> = {
-  coral:  { background: '#FAECE7', color: '#712B13' },
-  purple: { background: '#EEEDFE', color: '#3C3489' },
-  teal:   { background: '#E1F5EE', color: '#085041' },
+const BADGE_CLASSES: Record<BadgeType, string> = {
+  coral:  'bg-red-500/15 text-red-300 border border-red-500/20',
+  purple: 'bg-purple-500/15 text-purple-300 border border-purple-500/20',
+  teal:   'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20',
 };
 
 const BADGE_LABELS: Record<BadgeType, string> = {
@@ -31,71 +32,33 @@ export const SessionSlot: React.FC<SessionSlotProps> = ({
   topicTag,
   duration,
   badgeType,
+  isLast = false,
 }) => {
   return (
     <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
-        padding: '10px 0',
-        borderBottom: '0.5px solid var(--border)',
-      }}
+      className={`flex items-center gap-3 py-2.5 ${
+        !isLast ? 'border-b border-white/[0.06]' : ''
+      }`}
     >
       {/* Time */}
-      <span
-        style={{
-          minWidth: '64px',
-          fontSize: '12px',
-          color: 'var(--text)',
-          fontVariantNumeric: 'tabular-nums',
-          flexShrink: 0,
-        }}
-      >
+      <span className="min-w-[60px] text-xs text-gray-500 tabular-nums shrink-0">
         {time}
       </span>
 
       {/* Label + topic pill */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: '14px', color: 'var(--text-h)', fontWeight: 500 }}>
-          {label}
-        </span>
-        <span
-          style={{
-            fontSize: '11px',
-            padding: '2px 7px',
-            borderRadius: '999px',
-            background: 'var(--code-bg)',
-            color: 'var(--text)',
-            whiteSpace: 'nowrap',
-          }}
-        >
+      <div className="flex-1 flex items-center gap-2 flex-wrap">
+        <span className="text-sm text-white font-medium">{label}</span>
+        <span className="text-xs px-2 py-0.5 rounded-full bg-white/[0.06] text-gray-400 whitespace-nowrap">
           {topicTag}
         </span>
       </div>
 
       {/* Badge + duration */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-        <span
-          style={{
-            fontSize: '11px',
-            padding: '3px 8px',
-            borderRadius: '999px',
-            fontWeight: 600,
-            ...BADGE_STYLES[badgeType],
-          }}
-        >
+      <div className="flex items-center gap-1.5 shrink-0">
+        <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${BADGE_CLASSES[badgeType]}`}>
           {BADGE_LABELS[badgeType]}
         </span>
-        <span
-          style={{
-            fontSize: '11px',
-            padding: '3px 8px',
-            borderRadius: '999px',
-            background: 'var(--code-bg)',
-            color: 'var(--text)',
-          }}
-        >
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/[0.06] text-gray-400">
           {duration}
         </span>
       </div>

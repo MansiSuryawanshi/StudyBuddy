@@ -1,7 +1,7 @@
 /**
  * Card for one day's study sessions.
  */
-import React from 'react';
+import React, { useState } from 'react';
 import type { DaySchedule } from '../types';
 import { SessionSlot } from './SessionSlot';
 
@@ -10,43 +10,40 @@ interface DayScheduleCardProps {
 }
 
 export const DayScheduleCard: React.FC<DayScheduleCardProps> = ({ day }) => {
+  const [collapsed, setCollapsed] = useState(false);
+
   return (
-    <div
-      style={{
-        background: 'var(--bg)',
-        border: '1px solid var(--border)',
-        borderRadius: '10px',
-        padding: '18px 20px',
-        marginBottom: '12px',
-      }}
-    >
-      <p
-        style={{
-          margin: '0 0 8px',
-          fontSize: '14px',
-          fontWeight: 500,
-          color: 'var(--text-h)',
-          letterSpacing: '-0.1px',
-        }}
+    <div className="glass rounded-2xl overflow-hidden transition-all duration-300 hover:border-purple-500/20">
+      {/* Day header */}
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full flex items-center justify-between px-5 py-4 cursor-pointer text-left"
       >
-        {day.day}
-      </p>
-      <div>
-        {day.sessions.map((session, i) => (
-          <div
-            key={i}
-            style={i === day.sessions.length - 1 ? { borderBottom: 'none' } : undefined}
-          >
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-bold text-white">{day.day}</span>
+          <span className="text-xs text-gray-500">{day.sessions.length} session{day.sessions.length !== 1 ? 's' : ''}</span>
+        </div>
+        <span className={`text-gray-500 text-xs transition-transform duration-200 ${collapsed ? '' : 'rotate-180'}`}>
+          ▲
+        </span>
+      </button>
+
+      {/* Sessions */}
+      {!collapsed && (
+        <div className="px-5 pb-3 border-t border-white/[0.05]">
+          {day.sessions.map((session, i) => (
             <SessionSlot
+              key={i}
               time={session.time}
               label={session.label}
               topicTag={session.targets_gap ?? session.topic_tag}
               duration={session.duration}
               badgeType={session.badge_type}
+              isLast={i === day.sessions.length - 1}
             />
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
