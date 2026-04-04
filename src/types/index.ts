@@ -36,3 +36,25 @@ export interface Session {
   answers: Record<string, Answer>;
   scores: Record<string, ScoreResult>;
 }
+
+export type BadgeType = 'coral' | 'purple' | 'teal';
+
+export interface SessionSlotData {
+  time: string;
+  label: string;
+  topic_tag: string;
+  duration: string;
+  badge_type: BadgeType;
+  targets_gap: string | null;
+}
+
+export interface DaySchedule {
+  day: string;
+  sessions: SessionSlotData[];
+}
+
+export interface ScheduleResponse {
+  schedule: DaySchedule[];
+  priority_gap: string;
+  readiness_message: string;
+}
