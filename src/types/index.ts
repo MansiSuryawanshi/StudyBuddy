@@ -76,3 +76,42 @@ export interface ScheduleResponse {
   priority_gap: string;
   readiness_message: string;
 }
+
+// ── Exam Prep types (Developer 3) ─────────────────────────────────────────────
+
+export interface FollowUpResult {
+  followup_question: string;
+  weak_point_targeted: string;
+  deep_answer_covers: string[];
+  score_if_passed: number;
+  score_if_failed: number;
+}
+
+export interface DefenseEvaluation {
+  passed: boolean;
+  strength: 'strong' | 'adequate' | 'weak';
+  what_they_got_right: string | null;
+  what_they_missed: string | null;
+  verdict_label: string;
+}
+
+export interface CrossExamRecord {
+  originalQuestion: string;
+  originalAnswer: string;
+  followUpQuestion: string;
+  defenseAnswer: string;
+  passed: boolean;
+  verdictLabel: string;
+  scoreAdjustment: number;
+}
+
+export interface TopicProgress {
+  name: string;
+  percentage: number;
+}
+
+export interface QuizAnswer {
+  questionId: string;
+  sourceTopic: string;
+  isCorrect: boolean | null; // null = ungraded short-answer
+}

@@ -11,7 +11,7 @@ const ReasoningChallenge: React.FC = () => {
   const [phase, setPhase] = useState<QuizPhase>('idle');
   const [loadingStep, setLoadingStep] = useState<LoadingStep>('reading');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const { currentQuiz, setQuiz } = useStore();
+  const { currentQuiz, setQuiz, recordQuizAnswer, clearQuizAnswers } = useStore();
 
   useEffect(() => {
     const initQuiz = async () => {
@@ -48,13 +48,22 @@ const ReasoningChallenge: React.FC = () => {
     };
 
     if (phase === 'idle') {
+      clearQuizAnswers(); // reset answers when starting a new quiz
       initQuiz();
     }
-  }, [phase, setQuiz]);
+  }, [phase, setQuiz, clearQuizAnswers]);
 
-  const handleAnswer = (_answer: string, _isCorrect?: boolean) => {
-    // In this MVP, we just move to the next question.
-    // Future: Track score, show explanation, etc.
+  const handleAnswer = (_answer: string, isCorrect?: boolean) => {
+    // Record the answer against its topic for Exam Prep
+    if (currentQuiz) {
+      const q = currentQuiz[currentQuestionIndex];
+      recordQuizAnswer({
+        questionId: q.id,
+        sourceTopic: q.sourceTopic ?? 'General',
+        isCorrect: isCorrect ?? null,
+      });
+    }
+
     setTimeout(() => {
       if (currentQuestionIndex < (currentQuiz?.length || 0) - 1) {
         setCurrentQuestionIndex((prev: number) => prev + 1);

@@ -2,7 +2,7 @@
  * Claude API Service Layer — all Claude API calls live here.
  * Owner: Developer 2 (Claude API Service)
  */
-import type { ScheduleResponse } from '../types';
+import type { ScheduleResponse, FollowUpResult, DefenseEvaluation } from '../types';
 import type { ScoreResult } from '../types/index';
 import type { StudySnapshot, GeneratedReport } from '../types/report';
 
@@ -18,6 +18,7 @@ function buildHeaders() {
     'Content-Type': 'application/json',
     'x-api-key': getApiKey(),
     'anthropic-version': '2023-06-01',
+    'anthropic-dangerous-direct-browser-access': 'true',
   };
 }
 
@@ -70,11 +71,25 @@ export async function scoreAnswers(
 
 // ── generateFollowUp ─────────────────────────────────────────────────────────
 export const generateFollowUp = async (
-  _question: string,
-  _answer: string,
-  _depthScore: number,
-) => {
-  // Implementation
+  question: string,
+  pastAnswer: string,
+  depthScore: number,
+): Promise<FollowUpResult> => {
+  const res = await fetch(CLAUDE_URL, {
+    method: 'POST',
+    headers: buildHeaders(),
+    body: JSON.stringify({
+      model: CLAUDE_MODEL,
+      max_tokens: 512,
+      messages: [{
+        role: 'user',
+        content: `You are a Socratic examiner. A student answered:\n\nQuestion: ${question}\nAnswer: ${pastAnswer}\nDepth score: ${depthScore}/10\n\nGenerate a probing follow-up targeting their weakest point. Respond ONLY with JSON:\n{"followup_question":"...","weak_point_targeted":"...","deep_answer_covers":["...","...","..."],"score_if_passed":${Math.min(depthScore + 1.5, 10)},"score_if_failed":${Math.max(depthScore - 2, 0)}}`,
+      }],
+    }),
+  });
+  if (!res.ok) throw new Error(`Claude API error ${res.status}: ${res.statusText}`);
+  const data = await res.json() as { content: { text: string }[] };
+  return JSON.parse(stripFences(data.content[0].text)) as FollowUpResult;
 };
 
 // ── detectMisconception ──────────────────────────────────────────────────────
@@ -300,3 +315,28 @@ function buildMockReport(snapshot: StudySnapshot): GeneratedReport {
     confidenceCalibration: 'well-calibrated',
   };
 }
+
+// ── evaluateDefense ───────────────────────────────────────────────────────────
+export const evaluateDefense = async (
+  question: string,
+  _pastAnswer: string,
+  followUpQuestion: string,
+  defenseAnswer: string,
+  deepAnswerCovers: string[],
+): Promise<DefenseEvaluation> => {
+  const res = await fetch(CLAUDE_URL, {
+    method: 'POST',
+    headers: buildHeaders(),
+    body: JSON.stringify({
+      model: CLAUDE_MODEL,
+      max_tokens: 512,
+      messages: [{
+        role: 'user',
+        content: `Evaluate this student's defense.\n\nOriginal question: ${question}\nFollow-up: ${followUpQuestion}\nDefense: ${defenseAnswer}\nExpected coverage: ${deepAnswerCovers.join(', ')}\n\nRespond ONLY with JSON:\n{"passed":true,"strength":"strong","what_they_got_right":"...or null","what_they_missed":"...or null","verdict_label":"Gap closed"}`,
+      }],
+    }),
+  });
+  if (!res.ok) throw new Error(`Claude API error ${res.status}: ${res.statusText}`);
+  const data = await res.json() as { content: { text: string }[] };
+  return JSON.parse(stripFences(data.content[0].text)) as DefenseEvaluation;
+};

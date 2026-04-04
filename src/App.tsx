@@ -8,6 +8,7 @@ import FinalCTA from './components/FinalCTA';
 import ReasoningChallenge from './components/ReasoningChallenge';
 import { StudySchedule } from './components/StudySchedule';
 import { StudyReport } from './components/StudyReport';
+import { ExamPrep } from './components/ExamPrep';
 import { useStore } from './store/store';
 import UploadMaterial from './components/UploadMaterial';
 import { saveDocument } from './services/firebaseService';
@@ -89,9 +90,8 @@ const App: React.FC = () => {
           </div>
         )}
         {activeTab === 3 && (
-          <div className="flex flex-col items-center justify-center py-40 text-center animate-fade-in opacity-50">
-            <h2 className="text-6xl font-black text-gray-600 tracking-tighter lowercase">coming soon</h2>
-            <p className="text-gray-500 mt-6 font-medium tracking-wide text-lg">— AI evaluation and scoring tools —</p>
+          <div className="animate-fade-in">
+            <ExamPrep />
           </div>
         )}
         {activeTab === 4 && <StudySchedule onSwitchToChallenge={() => setActiveTab(2)} />}
