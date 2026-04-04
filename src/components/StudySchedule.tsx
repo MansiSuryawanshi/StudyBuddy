@@ -20,14 +20,14 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
 
   // Derive concept gaps from all session scores
   const scores = Object.values(session?.scores ?? {});
-  const conceptGaps = [...new Set(scores.flatMap((s) => s.conceptGapTags))];
+  const conceptGaps = [...new Set([
+    ...scores.map((s) => s.student_a.concept_gap).filter((g): g is string => g !== null),
+    ...scores.map((s) => s.student_b.concept_gap).filter((g): g is string => g !== null),
+  ])];
   const avgScore =
     scores.length === 0
       ? 0
-      : Math.round(
-          scores.reduce((sum, s) => sum + (s.correctness + s.reasoningDepth + s.clarity) / 3, 0) /
-            scores.length,
-        );
+      : Math.round(scores.reduce((sum, s) => sum + s.student_a.total, 0) / scores.length);
 
   const [localSchedule, setLocalSchedule] = useState<ScheduleResponse | null>(cachedSchedule);
   const [loading, setLoading] = useState(false);
