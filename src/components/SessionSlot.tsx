@@ -3,7 +3,7 @@
  * Shows: time | label + topic pill | duration badge
  */
 import React from 'react';
-import { BadgeType } from '../types';
+import type { BadgeType } from '../types';
 
 interface SessionSlotProps {
   time: string;
@@ -14,15 +14,15 @@ interface SessionSlotProps {
 }
 
 const BADGE_STYLES: Record<BadgeType, React.CSSProperties> = {
-  coral: { background: '#fff0ee', color: '#c0392b', border: '1px solid #f5c6c0' },
-  purple: { background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent-border)' },
-  teal: { background: '#e6faf8', color: '#0d9488', border: '1px solid #99e6df' },
+  coral:  { background: '#FAECE7', color: '#712B13' },
+  purple: { background: '#EEEDFE', color: '#3C3489' },
+  teal:   { background: '#E1F5EE', color: '#085041' },
 };
 
 const BADGE_LABELS: Record<BadgeType, string> = {
-  coral: 'gap focus',
+  coral:  'gap focus',
   purple: 'challenge',
-  teal: 'review',
+  teal:   'review',
 };
 
 export const SessionSlot: React.FC<SessionSlotProps> = ({
@@ -39,16 +39,17 @@ export const SessionSlot: React.FC<SessionSlotProps> = ({
         alignItems: 'center',
         gap: '12px',
         padding: '10px 0',
-        borderBottom: '1px solid var(--border)',
+        borderBottom: '0.5px solid var(--border)',
       }}
     >
       {/* Time */}
       <span
         style={{
-          minWidth: '68px',
-          fontSize: '13px',
+          minWidth: '64px',
+          fontSize: '12px',
           color: 'var(--text)',
           fontVariantNumeric: 'tabular-nums',
+          flexShrink: 0,
         }}
       >
         {time}
@@ -56,11 +57,13 @@ export const SessionSlot: React.FC<SessionSlotProps> = ({
 
       {/* Label + topic pill */}
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: '14px', color: 'var(--text-h)', fontWeight: 500 }}>{label}</span>
+        <span style={{ fontSize: '14px', color: 'var(--text-h)', fontWeight: 500 }}>
+          {label}
+        </span>
         <span
           style={{
             fontSize: '11px',
-            padding: '2px 8px',
+            padding: '2px 7px',
             borderRadius: '999px',
             background: 'var(--code-bg)',
             color: 'var(--text)',
@@ -71,22 +74,22 @@ export const SessionSlot: React.FC<SessionSlotProps> = ({
         </span>
       </div>
 
-      {/* Duration + type badge */}
+      {/* Badge + duration */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
         <span
           style={{
-            fontSize: '12px',
+            fontSize: '11px',
             padding: '3px 8px',
             borderRadius: '999px',
+            fontWeight: 600,
             ...BADGE_STYLES[badgeType],
-            fontWeight: 500,
           }}
         >
           {BADGE_LABELS[badgeType]}
         </span>
         <span
           style={{
-            fontSize: '12px',
+            fontSize: '11px',
             padding: '3px 8px',
             borderRadius: '999px',
             background: 'var(--code-bg)',

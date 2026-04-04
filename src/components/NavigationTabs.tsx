@@ -23,7 +23,7 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({ activeTab, onTab
     <nav
       style={{
         display: 'flex',
-        gap: '4px',
+        gap: '2px',
         borderBottom: '1px solid var(--border)',
         padding: '12px 24px 0',
         overflowX: 'auto',
@@ -45,9 +45,8 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({ activeTab, onTab
               fontSize: '14px',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
-              borderRadius: '4px 4px 0 0',
-              transition: 'color 0.15s',
               fontFamily: 'var(--sans)',
+              marginBottom: '-1px',
             }}
           >
             {tab.label}
