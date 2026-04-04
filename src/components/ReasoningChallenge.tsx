@@ -32,7 +32,8 @@ const ReasoningChallenge: React.FC = () => {
   const [results, setResults] = useState<QuestionResult[]>([]);
   const [finalAttempt, setFinalAttempt] = useState<QuizAttempt | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const { currentQuiz, setQuiz } = useStore();
+  const { currentQuiz, setQuiz, recordQuizAnswer, clearQuizAnswers } = useStore();
+
 
   // Load documents on mount
   const loadDocs = async () => {
@@ -130,7 +131,9 @@ const ReasoningChallenge: React.FC = () => {
       console.log(`[Challenge] Quiz built with ${questions.length} questions.`);
       
       setQuiz(questions);
+      clearQuizAnswers(); // Reset for the new session
       setPhase('quiz');
+
     } catch (error) {
       console.error("[Challenge] Quiz generation failed:", error);
       setPhase('generation-error');
@@ -151,7 +154,17 @@ const ReasoningChallenge: React.FC = () => {
 
     setResults(prev => [...prev, result]);
 
+    // Record the answer against its topic for Exam Prep
+    if (currentQuiz) {
+      recordQuizAnswer({
+        questionId: currentQuestion.id,
+        sourceTopic: currentQuestion.sourceTopic ?? 'General',
+        isCorrect: isCorrect ?? null,
+      });
+    }
+
     setTimeout(async () => {
+
       if (currentQuestionIndex < (currentQuiz?.length || 0) - 1) {
         setCurrentQuestionIndex(prev => prev + 1);
       } else {
