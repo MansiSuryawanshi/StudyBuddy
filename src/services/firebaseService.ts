@@ -27,6 +27,7 @@ export interface StudyDocument {
  * Saves a new study document to Firebase Firestore.
  */
 export async function saveDocument(fileName: string, rawText: string): Promise<string> {
+  console.log(`[Firebase] Save Document started: ${fileName}`);
   try {
     const userDocsRef = collection(db, "users", USER_ID, "documents");
     const newDoc = {
@@ -38,13 +39,15 @@ export async function saveDocument(fileName: string, rawText: string): Promise<s
     };
     
     const docRef = await addDoc(userDocsRef, newDoc);
+    console.log(`[Firebase] Document created with ID: ${docRef.id}`);
     
     // Set this doc as the active one for the user
     await setDoc(doc(db, "users", USER_ID), { activeDocumentId: docRef.id }, { merge: true });
+    console.log(`[Firebase] activeDocumentId updated to: ${docRef.id}`);
     
     return docRef.id;
   } catch (error) {
-    console.error("Error saving document: ", error);
+    console.error("[Firebase] Error saving document: ", error);
     throw error;
   }
 }
@@ -53,15 +56,23 @@ export async function saveDocument(fileName: string, rawText: string): Promise<s
  * Fetches the currently active document ID for the user.
  */
 export async function getActiveDocumentId(): Promise<string | null> {
+  console.log("[Firebase] getActiveDocumentId started...");
   try {
     const userRef = doc(db, "users", USER_ID);
     const userSnap = await getDoc(userRef);
     if (userSnap.exists()) {
-      return userSnap.data().activeDocumentId || null;
+      const docId = userSnap.data().activeDocumentId || null;
+      if (docId) {
+        console.log(`[Firebase] Active Document ID found: ${docId}`);
+      } else {
+        console.warn("[Firebase] No activeDocumentId found in user document.");
+      }
+      return docId;
     }
+    console.warn("[Firebase] User document does not exist yet.");
     return null;
   } catch (error) {
-    console.error("Error fetching active doc ID: ", error);
+    console.error("[Firebase] Error fetching active doc ID: ", error);
     return null;
   }
 }
@@ -70,15 +81,26 @@ export async function getActiveDocumentId(): Promise<string | null> {
  * Retrieves the full study document based on its ID.
  */
 export async function getDocumentById(docId: string): Promise<StudyDocument | null> {
+  console.log(`[Firebase] getDocumentById started for: ${docId}`);
   try {
     const docRef = doc(db, "users", USER_ID, "documents", docId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
-      return { id: docSnap.id, ...docSnap.data() } as StudyDocument;
+      const data = docSnap.data();
+      const doc = { id: docSnap.id, ...data } as StudyDocument;
+      console.log(`[Firebase] Document loaded: ${doc.fileName}`);
+      console.log(`[Firebase] rawText size: ${doc.rawText?.length || 0} characters.`);
+      
+      if (!doc.rawText) {
+        console.error(`[Firebase] CRITICAL: Document ${docId} exists but rawText is missing or empty!`);
+      }
+      
+      return doc;
     }
+    console.error(`[Firebase] Document ${docId} does not exist in the collection.`);
     return null;
   } catch (error) {
-    console.error("Error fetching document: ", error);
+    console.error(`[Firebase] Error fetching document ${docId}: `, error);
     return null;
   }
 }
@@ -87,13 +109,15 @@ export async function getDocumentById(docId: string): Promise<StudyDocument | nu
  * Lists all documents for the current user, ordered by upload time.
  */
 export async function listUserDocuments(): Promise<StudyDocument[]> {
+  console.log("[Firebase] listUserDocuments started...");
   try {
     const userDocsRef = collection(db, "users", USER_ID, "documents");
     const q = query(userDocsRef, orderBy("uploadedAt", "desc"));
     const querySnapshot = await getDocs(q);
+    console.log(`[Firebase] Found ${querySnapshot.size} user documents.`);
     return querySnapshot.docs.map(d => ({ id: d.id, ...d.data() } as StudyDocument));
   } catch (error) {
-    console.error("Error listing documents: ", error);
+    console.error("[Firebase] Error listing documents: ", error);
     return [];
   }
 }

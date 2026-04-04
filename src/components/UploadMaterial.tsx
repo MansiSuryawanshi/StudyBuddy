@@ -37,17 +37,20 @@ const UploadMaterial: React.FC<UploadMaterialProps> = ({ content, onContentChang
   };
 
   const handleFileSelection = async (file: File) => {
+    console.log(`[Upload] File selected: ${file.name} (${file.type})`);
     setSelectedFile(file);
     
     // For now, read text files directly. PDF/DOCX parsing UI can go here later.
     if (file.type === "text/plain") {
       const reader = new FileReader();
       reader.onload = (e) => {
-        onContentChange(e.target?.result as string);
+        const text = e.target?.result as string;
+        console.log(`[Upload] Text extracted from ${file.name}. Length: ${text.length} characters.`);
+        onContentChange(text);
       };
       reader.readAsText(file);
     } else {
-      // Show "Mock parsing" for other types
+      console.log(`[Upload] Non-text file selected. Using placeholder parsing for ${file.name}.`);
       onContentChange(`[Parsing Content from ${file.name}...]`);
     }
   };
