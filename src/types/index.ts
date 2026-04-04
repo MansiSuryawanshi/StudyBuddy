@@ -76,3 +76,25 @@ export interface ScheduleResponse {
   priority_gap: string;
   readiness_message: string;
 }
+export interface QuizAttempt {
+  id?: string;
+  createdAt: any; // Firebase Timestamp
+  selectedDocumentIds: string[];
+  selectedFileNames: string[];
+  score: number;
+  correctCount: number;
+  wrongCount: number;
+  totalQuestions: number;
+  accuracy: number;
+  questionResults: {
+    questionId: string;
+    questionText: string;
+    userAnswer: string;
+    correctAnswer: string;
+    isCorrect: boolean;
+    explanation?: string;
+  }[];
+  weakTopics: string[];
+  strongTopics: string[];
+  generatedFromContentLength: number;
+}

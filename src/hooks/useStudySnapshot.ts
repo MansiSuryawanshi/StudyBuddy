@@ -1,18 +1,15 @@
-/**
- * Assembles a StudySnapshot from all available store data.
- * Glues the three tabs together into a single input for generateReport().
- */
 import { useStore } from '../store/store';
 import type { StudySnapshot } from '../types/report';
+import type { QuizAttempt } from '../types';
 
-export function useStudySnapshot(): StudySnapshot {
+export function useStudySnapshot(persistedAttempts: QuizAttempt[] = []): StudySnapshot {
   const session = useStore((state) => state.session);
   const schedule = useStore((state) => state.schedule);
 
-  const scores = Object.values(session?.scores ?? {});
-
-  const quizSessions = scores.map((score) => ({
-    question: session?.currentQuestion?.question ?? 'Not yet assessed',
+  // 1. Map live session scores (if any)
+  const sessionScores = Object.values(session?.scores ?? {});
+  const sessionQuizUnits = sessionScores.map((score) => ({
+    question: session?.currentQuestion?.question ?? 'Live Session Question',
     scoreA: score.student_a.total,
     scoreB: score.student_b.total,
     conceptGaps: [
@@ -26,27 +23,41 @@ export function useStudySnapshot(): StudySnapshot {
     depthInsight: score.depth_insight,
   }));
 
+  // 2. Map persisted quiz attempts
+  const persistedQuizUnits = persistedAttempts.map((attempt) => ({
+    question: `Quiz on ${attempt.selectedFileNames.join(', ')}`,
+    scoreA: attempt.accuracy,
+    scoreB: attempt.accuracy, // Simplified for single player persisted
+    conceptGaps: attempt.weakTopics,
+    misconceptions: [],
+    depthInsight: `Accuracy: ${attempt.accuracy}%, Correct: ${attempt.correctCount}/${attempt.totalQuestions}`,
+  }));
+
+  const allQuizSessions = [...sessionQuizUnits, ...persistedQuizUnits];
+
   const sessionsPlanned =
     schedule?.schedule.reduce((sum, day) => sum + day.sessions.length, 0) ?? 0;
 
   const allWeakAreas = [...new Set([
-    ...scores.map((s) => s.student_a.concept_gap).filter((g): g is string => g !== null),
-    ...scores.map((s) => s.student_b.concept_gap).filter((g): g is string => g !== null),
+    ...allQuizSessions.flatMap(s => s.conceptGaps)
   ])];
 
   return {
-    quizSessions,
+    quizSessions: allQuizSessions,
     scheduleAdherence: {
       sessionsPlanned,
-      sessionsCompleted: 0,
+      sessionsCompleted: persistedAttempts.length, // Each quiz is a completed session
       priorityGap: schedule?.priority_gap ?? 'Not yet assessed',
     },
     examReadiness: {
-      overallScore: 0,
+      overallScore: allQuizSessions.length > 0 
+        ? Math.round(allQuizSessions.reduce((acc, s) => acc + s.scoreA, 0) / allQuizSessions.length)
+        : 0,
       topicCoverage: [],
       weakAreas: allWeakAreas,
-      crossExamsPassed: 0,
-      crossExamsFailed: 0,
+      crossExamsPassed: allQuizSessions.filter(s => s.scoreA >= 70).length,
+      crossExamsFailed: allQuizSessions.filter(s => s.scoreA < 70).length,
     },
   };
 }
+

@@ -7,9 +7,14 @@ import {
   orderBy, 
   doc, 
   setDoc,
+  deleteDoc,
   Timestamp 
 } from "firebase/firestore";
+
 import { db } from "./firebaseConfig";
+import type { QuizAttempt } from "../types";
+
+
 
 // Shared User ID for the current session (Simplified for demo, replace with auth UID)
 const USER_ID = "guest_user";
@@ -121,3 +126,92 @@ export async function listUserDocuments(): Promise<StudyDocument[]> {
     return [];
   }
 }
+
+/**
+ * Saves a completed quiz attempt to Firebase Firestore.
+ */
+export async function saveQuizAttempt(attempt: Omit<QuizAttempt, "id">): Promise<string | null> {
+  console.log("[Firebase] saveQuizAttempt started...");
+  try {
+    const attemptsRef = collection(db, "users", USER_ID, "quizAttempts");
+    const docRef = await addDoc(attemptsRef, {
+      ...attempt,
+      createdAt: Timestamp.now()
+    });
+    console.log(`[Firebase] Quiz attempt saved with ID: ${docRef.id}`);
+    return docRef.id;
+  } catch (error) {
+    console.error("[Firebase] Error saving quiz attempt: ", error);
+    return null;
+  }
+}
+
+/**
+ * Retrieves all quiz attempts for the current user.
+ */
+export async function getUserQuizAttempts(): Promise<QuizAttempt[]> {
+  console.log("[Firebase] getUserQuizAttempts started...");
+  try {
+    const attemptsRef = collection(db, "users", USER_ID, "quizAttempts");
+    const q = query(attemptsRef, orderBy("createdAt", "desc"));
+    const querySnapshot = await getDocs(q);
+    console.log(`[Firebase] Found ${querySnapshot.size} quiz attempts.`);
+    return querySnapshot.docs.map(d => ({ id: d.id, ...d.data() } as QuizAttempt));
+  } catch (error) {
+    console.error("[Firebase] Error fetching quiz attempts: ", error);
+    return [];
+  }
+}
+
+/**
+ * Removes a single study document and clears activeDocumentId if needed.
+ */
+export async function removeDocument(docId: string): Promise<void> {
+  console.log(`[Firebase] removeDocument started for: ${docId}`);
+  try {
+    const docRef = doc(db, "users", USER_ID, "documents", docId);
+    
+    // Check if it's the active one
+    const activeId = await getActiveDocumentId();
+    if (activeId === docId) {
+      console.log(`[Firebase] Clearing activeDocumentId for ${USER_ID}`);
+      await setDoc(doc(db, "users", USER_ID), { activeDocumentId: null }, { merge: true });
+    }
+    
+    await deleteDoc(docRef);
+    console.log(`[Firebase] Document ${docId} removed successfully.`);
+  } catch (error) {
+    console.error(`[Firebase] Error removing document ${docId}: `, error);
+    throw error;
+  }
+}
+
+/**
+ * Bulk removes multiple documents.
+ */
+export async function removeDocuments(docIds: string[]): Promise<void> {
+  console.log(`[Firebase] removeDocuments started for ${docIds.length} items.`);
+  try {
+    const activeId = await getActiveDocumentId();
+    let activeCleared = false;
+    
+    const promises = docIds.map(async (id) => {
+      const docRef = doc(db, "users", USER_ID, "documents", id);
+      if (id === activeId) activeCleared = true;
+      return deleteDoc(docRef);
+    });
+    
+    await Promise.all(promises);
+    
+    if (activeCleared) {
+      console.log(`[Firebase] Clearing activeDocumentId as it was in the bulk delete list.`);
+      await setDoc(doc(db, "users", USER_ID), { activeDocumentId: null }, { merge: true });
+    }
+    
+    console.log(`[Firebase] All ${docIds.length} documents removed successfully.`);
+  } catch (error) {
+    console.error("[Firebase] Error in bulk removal: ", error);
+    throw error;
+  }
+}
+

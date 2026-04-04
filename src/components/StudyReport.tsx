@@ -1,13 +1,11 @@
-/**
- * Study Report tab — generates a Claude-powered 4-section performance report,
- * saves it to Firebase Firestore, and shows history of past reports.
- */
 import React, { useState, useEffect } from 'react';
 import type { StudyReport as StudyReportType } from '../types/report';
+import type { QuizAttempt } from '../types';
 import { useStore } from '../store/store';
 import { useStudySnapshot } from '../hooks/useStudySnapshot';
 import { generateReport } from '../services/claudeService';
 import { saveReport } from '../services/reportService';
+import { getUserQuizAttempts } from '../services/firebaseService';
 import { ReportHeader } from './ReportHeader';
 import { ReportScoreGrid } from './ReportScoreGrid';
 import { ReportSectionCard } from './ReportSectionCard';
@@ -31,15 +29,29 @@ const DATA_SOURCES = [
 
 export const StudyReport: React.FC = () => {
   const session = useStore((state) => state.session);
-  const snapshot = useStudySnapshot();
+  const [persistedAttempts, setPersistedAttempts] = useState<QuizAttempt[]>([]);
+  const snapshot = useStudySnapshot(persistedAttempts);
 
   const [viewState, setViewState] = useState<ViewState>('empty');
   const [report, setReport] = useState<StudyReportType | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [msgIndex, setMsgIndex] = useState(0);
 
+  useEffect(() => {
+    const fetchAttempts = async () => {
+      try {
+        const attempts = await getUserQuizAttempts();
+        console.log(`[Report] Loaded ${attempts.length} persisted attempts.`);
+        setPersistedAttempts(attempts);
+      } catch (err) {
+        console.error("[Report] Failed to load attempts:", err);
+      }
+    };
+    fetchAttempts();
+  }, []);
+
   const scores = Object.values(session?.scores ?? {});
-  const hasQuizData = scores.length > 0;
+  const hasQuizData = scores.length > 0 || persistedAttempts.length > 0;
   const hasSchedule = useStore((state) => state.schedule) !== null;
   const dataAvailable = [hasQuizData, hasSchedule, false];
 
