@@ -1,17 +1,16 @@
 /**
- * Hooks that watches for both answers, triggers claudeService, and pushes to global state.
+ * Hook that watches for both answers, triggers claudeService, and pushes results to global state.
  * Owner: Developer 3 (Session & State)
  */
 import { useEffect } from 'react';
 import { useStore } from '../store/store';
-import { api } from '../services/api';
+import type { SessionState } from '../store/store';
 
 export const useScoring = () => {
-  const session = useStore((state) => state.session);
+  const session = useStore((state: SessionState) => state.session);
 
   useEffect(() => {
-    // If both players have submitted answers, trigger api.claude.scoreAnswers
-    // and wait for structural evaluation
+    // TODO: when both players have submitted answers, call scoreAnswers and update store
   }, [session?.answers]);
 
   return {};
