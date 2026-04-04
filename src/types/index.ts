@@ -1,7 +1,23 @@
-/**
- * Shared TypeScript interfaces used across all 3 developer modules.
- * Owner: Shared (all developers)
- */
+export type QuestionType = "mcq" | "short_answer";
+
+export interface GeneratedQuestion {
+  id: string;
+  type: QuestionType;
+  question: string;
+  options?: string[];
+  correctAnswer: string;
+  explanation?: string;
+  sourceTopic?: string;
+}
+
+export interface StudyDocument {
+  id?: string;
+  fileName: string;
+  uploadedAt: any;
+  rawText: string;
+  extractedTopics?: string[];
+  processed: boolean;
+}
 
 export interface StudentScore {
   correctness: number;
@@ -23,13 +39,6 @@ export interface ScoreResult {
 
 export type SessionPhase = 'question' | 'answering' | 'analyzing' | 'revealed';
 
-export interface Question {
-  id: string;
-  topic: string;
-  text: string;
-  expectedConcepts: string[];
-}
-
 export interface Answer {
   userId: string;
   text: string;
@@ -37,16 +46,10 @@ export interface Answer {
   confidenceRating?: number;
 }
 
-export interface MisconceptionResult {
-  namedMisconception: string;
-  severity: 'low' | 'medium' | 'high';
-  correction: string;
-}
-
 export interface Session {
   roomId: string;
   phase: SessionPhase;
-  currentQuestion: Question | null;
+  currentQuestion: GeneratedQuestion | null;
   players: string[];
   answers: Record<string, Answer>;
   scores: Record<string, ScoreResult>;

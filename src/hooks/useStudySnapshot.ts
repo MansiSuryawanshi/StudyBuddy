@@ -12,7 +12,7 @@ export function useStudySnapshot(): StudySnapshot {
   const scores = Object.values(session?.scores ?? {});
 
   const quizSessions = scores.map((score) => ({
-    question: session?.currentQuestion?.text ?? 'Not yet assessed',
+    question: session?.currentQuestion?.question ?? 'Not yet assessed',
     scoreA: score.student_a.total,
     scoreB: score.student_b.total,
     conceptGaps: [
