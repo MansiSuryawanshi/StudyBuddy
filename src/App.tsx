@@ -53,22 +53,32 @@ const App: React.FC = () => {
   
   const handleStartChallenge = async (fileName: string = "Manual Upload") => {
     if (!uploadedContent.trim()) {
-      console.warn("[App] Cannot start challenge: uploadedContent is empty.");
+      console.warn("[App-Step.Abort] Cannot start challenge: uploadedContent is empty.");
       return;
     }
     
-    console.log(`[App] handleStartChallenge started for: ${fileName}`);
+    console.group(`[App-Upload-Pipeline] Started for: ${fileName}`);
     setIsSaving(true);
     try {
+      console.log(`[App-Step 1] Initializing Firestore write...`);
       const docId = await saveDocument(fileName, uploadedContent);
-      console.log(`[App] Firebase success! Document ID: ${docId}. Switching to Challenge tab...`);
+      console.log(`[App-Step 2] Firebase success! Document ID: ${docId}. Navigating to Challenge arena...`);
+      
       setChallengeSessionKey(prev => prev + 1); // Force Challenge reload
       setActiveTab(2);
-    } catch (error) {
-      console.error("[App] Failed to save document: ", error);
-      alert("Failed to save study material. Please check your Firebase configuration and permissions.");
+      console.log(`[App-Step 3] Navigation triggered.`);
+      console.groupEnd();
+    } catch (error: any) {
+      console.group("[App-Step.FAIL] Execution halted.");
+      console.error(`Reason: ${error?.message || "Unknown error"}`);
+      console.error("Stack:", error);
+      console.groupEnd();
+      console.groupEnd();
+      
+      alert(`Critical: Failed to save study material.\n\nRoot Error: ${error?.message || "Firebase Network/Auth Error"}\n\nPlease check your internet connection and Vercel environment variables.`);
     } finally {
       setIsSaving(false);
+      console.log(`[App-Lifecycle] Upload state reset. (isSaving=false)`);
     }
   };
 

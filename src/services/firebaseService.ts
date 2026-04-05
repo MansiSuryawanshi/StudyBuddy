@@ -52,6 +52,7 @@ export interface StudyDocument {
 export async function saveDocument(fileName: string, rawText: string): Promise<string> {
   const path = `users/${USER_ID}/documents`;
   console.group(`[Firebase-WRITE] ${path}`);
+  console.log(`[Firebase-Step 1] Initializing document structure...`);
   try {
     const userDocsRef = collection(db, "users", USER_ID, "documents");
     const newDoc = {
@@ -62,15 +63,19 @@ export async function saveDocument(fileName: string, rawText: string): Promise<s
       extractedTopics: []
     };
     
+    console.log(`[Firebase-Step 2] Calling addDoc()...`);
     const docRef = await addDoc(userDocsRef, newDoc);
-    console.log(`Success. DocID: ${docRef.id} | Size: ${rawText.length} chars`);
+    console.log(`[Firebase-Step 2.Success] DocID: ${docRef.id} | Size: ${rawText.length} chars`);
     
     // Set this doc as the active one for the user
+    console.log(`[Firebase-Step 3] Updating activeDocumentId...`);
     await setDoc(doc(db, "users", USER_ID), { activeDocumentId: docRef.id }, { merge: true });
+    console.log(`[Firebase-Step 3.Success] activeDocumentId grounded.`);
+    
     console.groupEnd();
     return docRef.id;
   } catch (error: any) {
-    console.error(`Upload failed: ${error.message || error}`);
+    console.error(`[Firebase-Step.FAIL] Upload failed:`, error);
     console.groupEnd();
     throw error;
   }

@@ -217,29 +217,40 @@ IMPORTANT RULES:
 Generate a 3-day study schedule. Return ONLY a raw JSON object, no markdown, no backticks, no explanation:
 {"schedule":[{"day":"Today · Monday","sessions":[{"time":"9:00 am","label":"session name","topic_tag":"gap focus","duration":"45 min","badge_type":"coral","targets_gap":"gap name or null","rationale":"short evidence string"}]}],"priority_gap":"most urgent gap","readiness_message":"one sentence"}`;
 
-  if (!apiKey) return buildMockSchedule(gaps);
-
-  console.log(`Using Anthropic model: ${ANTHROPIC_MODEL}`);
-  const response = await fetch(CLAUDE_URL, {
-    method: 'POST',
-    headers: buildHeaders(),
-    body: JSON.stringify({
-      model: ANTHROPIC_MODEL,
-
-      max_tokens: 1024,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Claude API error ${response.status}: ${response.statusText}`);
-  }
-
-  const data = await response.json() as { content: { text: string }[] };
   try {
-    return JSON.parse(extractJson(data.content[0].text)) as ScheduleResponse;
-  } catch {
-    throw new Error('Claude returned invalid JSON. Try regenerating.');
+    if (!apiKey) {
+      console.warn("[ClaudeService] No API key. Falling back to local generation...");
+      return buildMockSchedule(gaps, avgScore, daysToExam, topicAccuracy);
+    }
+
+    console.log(`[ClaudeService] Generating schedule with ${ANTHROPIC_MODEL}...`);
+    const response = await fetch(CLAUDE_URL, {
+      method: 'POST',
+      headers: buildHeaders(),
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 1024,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(`[ClaudeService] API Error ${response.status}. Falling back to local...`);
+      return buildMockSchedule(gaps, avgScore, daysToExam, topicAccuracy);
+    }
+
+    const data = await response.json() as { content: { text: string }[] };
+    return { 
+      ...JSON.parse(extractJson(data.content[0].text)),
+      isFallback: false 
+    } as ScheduleResponse;
+
+  } catch (err) {
+    console.group("[ClaudeService-FAIL] Generation error");
+    console.error(err);
+    console.log("Triggering local fallback generator...");
+    console.groupEnd();
+    return buildMockSchedule(gaps, avgScore, daysToExam, topicAccuracy);
   }
 };
 
@@ -323,47 +334,99 @@ Return this exact JSON structure:
 };
 
 // ── Mock fallbacks ────────────────────────────────────────────────────────────
-function buildMockSchedule(gaps: string[]): ScheduleResponse {
+function buildMockSchedule(
+  gaps: string[],
+  _avgScore: number,
+  daysToExam: number,
+  topicAccuracy?: { topic: string; accuracy: number }[]
+): ScheduleResponse {
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const today = dayNames[new Date().getDay()];
-  const gapSessions = gaps.slice(0, 2).map((gap, i) => ({
-    time: i === 0 ? '9:00 am' : '11:00 am',
-    label: `Deep dive: ${gap}`,
-    topic_tag: gap,
-    duration: '45 min',
-    badge_type: 'coral' as const,
-    targets_gap: gap,
-  }));
-  return {
+  const todayDate = new Date();
+  
+  const getDayName = (offset: number) => {
+    const d = new Date();
+    d.setDate(todayDate.getDate() + offset);
+    return dayNames[d.getDay()];
+  };
+
+  const priorityGap = gaps[0] ?? 'General review';
+  
+  // Sort topics by accuracy to prioritize weakest
+  const sortedTopics = topicAccuracy 
+    ? [...topicAccuracy].sort((a, b) => a.accuracy - b.accuracy)
+    : gaps.map(g => ({ topic: g, accuracy: 50 }));
+
+  const plan: ScheduleResponse = {
+    isFallback: true,
+    priority_gap: priorityGap,
+    readiness_message: daysToExam < 4 
+      ? "SPRINT MODE: Focusing on your most critical gaps before the deadline."
+      : "GAP CLOSURE: Methodical review of identifies weaknesses.",
     schedule: [
       {
-        day: `Today · ${today}`,
-        sessions: [...gapSessions, { time: '2:00 pm', label: 'Reasoning challenge practice', topic_tag: 'challenge', duration: '30 min', badge_type: 'purple', targets_gap: null }],
+        day: `Today · ${getDayName(0)}`,
+        sessions: [
+          { 
+            time: '9:00 am', 
+            label: `Critical Gap: ${priorityGap}`, 
+            topic_tag: 'Gap Focus', 
+            duration: '60 min', 
+            badge_type: 'coral', 
+            targets_gap: priorityGap,
+            rationale: "Highest priority gap identified from recent quiz performance."
+          },
+          { 
+            time: '2:00 pm', 
+            label: 'Mixed Practice Arena', 
+            topic_tag: 'active recall', 
+            duration: '30 min', 
+            badge_type: 'purple', 
+            targets_gap: null,
+            rationale: "Broad reinforcement across all current topics."
+          }
+        ]
       },
       {
-        day: 'Wednesday',
+        day: getDayName(1),
         sessions: [
-          gaps[0]
-            ? { time: '10:00 am', label: `Reinforce: ${gaps[0]}`, topic_tag: gaps[0], duration: '40 min', badge_type: 'coral' as const, targets_gap: gaps[0] }
-            : { time: '10:00 am', label: 'Concept mapping', topic_tag: 'review', duration: '40 min', badge_type: 'teal' as const, targets_gap: null },
-          { time: '1:00 pm', label: 'Mixed practice quiz', topic_tag: 'challenge', duration: '30 min', badge_type: 'purple', targets_gap: null },
-        ],
+          { 
+            time: '10:00 am', 
+            label: sortedTopics[1] ? `Targeted Study: ${sortedTopics[1].topic}` : 'Concept Review', 
+            topic_tag: 'Weak Topic', 
+            duration: '45 min', 
+            badge_type: 'coral', 
+            targets_gap: sortedTopics[1]?.topic ?? null,
+            rationale: "Addressing secondary concept gaps to build foundational strength."
+          },
+          { 
+            time: '4:00 pm', 
+            label: 'Exam Prep Simulation', 
+            topic_tag: 'Mock Exam', 
+            duration: '40 min', 
+            badge_type: 'purple', 
+            targets_gap: null,
+            rationale: "Timed simulation to build exam-day stamina."
+          }
+        ]
       },
       {
-        day: 'Friday',
+        day: getDayName(2),
         sessions: [
-          gaps[1]
-            ? { time: '9:00 am', label: `Master: ${gaps[1]}`, topic_tag: gaps[1], duration: '45 min', badge_type: 'coral' as const, targets_gap: gaps[1] }
-            : { time: '9:00 am', label: 'Full concept review', topic_tag: 'review', duration: '45 min', badge_type: 'teal' as const, targets_gap: null },
-          { time: '12:00 pm', label: 'Exam simulation', topic_tag: 'challenge', duration: '60 min', badge_type: 'purple', targets_gap: null },
-        ],
-      },
-    ],
-    priority_gap: gaps[0] ?? 'General review',
-    readiness_message: gaps.length > 0
-      ? `Focus on closing ${gaps.length} identified gap${gaps.length > 1 ? 's' : ''} before the exam.`
-      : 'You are on track — keep up the practice sessions.',
+          { 
+            time: '9:30 am', 
+            label: `Mastery Review: ${priorityGap}`, 
+            topic_tag: 'Spaced Repetition', 
+            duration: '45 min', 
+            badge_type: 'teal', 
+            targets_gap: priorityGap,
+            rationale: "Revisiting weakest area to consolidate long-term memory."
+          }
+        ]
+      }
+    ]
   };
+
+  return plan;
 }
 
 function buildMockReport(snapshot: StudySnapshot): GeneratedReport {

@@ -76,6 +76,7 @@ export interface ScheduleResponse {
   schedule: DaySchedule[];
   priority_gap: string;
   readiness_message: string;
+  isFallback?: boolean;
 }
 export interface QuizAttempt {
   id?: string;

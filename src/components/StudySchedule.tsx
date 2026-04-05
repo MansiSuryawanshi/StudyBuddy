@@ -85,18 +85,33 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
     accuracy: { topic: string; accuracy: number }[],
     days: number
   ) => {
+    console.group(`[StudySchedule-Pipeline] Generating plan...`);
+    console.log(`Step 1: Context gathered. Gaps: ${gaps.length}, AvgScore: ${score}, DaysLeft: ${days}`);
+    
     setLoading(true);
     setError(null);
     setNewGapsNudge(false);
+    
     try {
-      console.log(`[StudySchedule-AI] Generating adaptive plan for ${days} days remaining.`);
+      console.log(`Step 2: Calling Claude API (or local fallback)...`);
       const result = await generateSchedule(gaps, score, days, accuracy);
+      
+      if (result.isFallback) {
+        console.warn(`Step 3: AI Generation failed/unavailable. Using grounded fallback.`);
+      } else {
+        console.log(`Step 3: AI Generation SUCCESS!`);
+      }
+      
       setLocalSchedule(result);
       setSchedule(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate schedule.');
+      console.log(`Step 4: Schedule synchronized with global store.`);
+    } catch (err: any) {
+      console.error(`Step 3.FAIL: Critical error in schedule pipeline`, err);
+      setError(err?.message || 'Unexpected failure in study plan generation.');
     } finally {
       setLoading(false);
+      console.log(`Step 5: Pipeline finished. Loading cleared.`);
+      console.groupEnd();
     }
   };
 
@@ -149,9 +164,16 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
         </div>
       )}
 
+      {localSchedule?.isFallback && (
+        <div className="mb-5 p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex flex-col gap-1 animate-fade-in">
+          <span className="text-sm font-black text-blue-400 uppercase tracking-widest">Grounded Fallback</span>
+          <p className="text-xs text-blue-300 font-medium">AI generation failed/unavailable. Showing a static plan optimized for your recent mistakes and exam deadline.</p>
+        </div>
+      )}
+
       {newGapsNudge && (
-        <div className="mb-5 p-4 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex justify-between items-center animate-fade-in">
-          <span className="text-sm text-orange-300">Data updated — regenerate your plan?</span>
+        <div className="mb-5 p-4 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex justify-between items-center animate-fade-in shadow-lg shadow-orange-500/5">
+          <span className="text-sm text-orange-300 font-medium">New performance data — recalculate plan?</span>
           <button onClick={() => void fetchSchedule()} className="ml-4 shrink-0 bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/30 text-orange-200 rounded-xl px-4 py-1.5 text-xs font-bold transition-all cursor-pointer">Regenerate</button>
         </div>
       )}
