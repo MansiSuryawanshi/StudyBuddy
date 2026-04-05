@@ -1,12 +1,12 @@
 
 
-export type QuestionType = "mcq" | "short_answer";
+export type QuestionType = "mcq";
 
 export interface GeneratedQuestion {
   id: string;
   type: QuestionType;
   question: string;
-  options?: string[];
+  options: string[]; // Options are now mandatory
   correctAnswer: string;
   explanation?: string;
   sourceTopic?: string;
@@ -17,35 +17,46 @@ import { ANTHROPIC_MODEL } from "../config/aiConfig";
 const CLAUDE_URL = '/anthropic/v1/messages';
 
 /**
- * Generates a quiz from the provided study material using the Claude API.
+ * Validates that a generated question is grounded in content and has exactly 4 options.
+ */
+function validateQuestionQuality(q: GeneratedQuestion): boolean {
+  const bannedSubstrings = ["[Parsing", "filename", "placeholder", "upload"];
+  const content = (q.question + " " + q.correctAnswer).toLowerCase();
+  
+  if (bannedSubstrings.some(b => content.includes(b.toLowerCase()))) return false;
+  if (q.question.length < 15) return false;
+  if (!q.options || q.options.length !== 4) return false;
+  
+  return true;
+}
+
+/**
+ * Generates an MCQ-only quiz from the provided study material using the Claude API.
  */
 export async function generateQuizFromContent(content: string, questionCount: number = 5): Promise<GeneratedQuestion[]> {
   const apiKey = import.meta.env.VITE_CLAUDE_API_KEY;
   
-  console.group(`[QuizService] Generation Pipeline Started`);
-  console.log(`Step 1: Model check. Using: ${ANTHROPIC_MODEL}`);
-  console.log(`Step 2: Content check. Length: ${content.length} characters.`);
-  console.log(`Step 3: Requesting ${questionCount} questions...`);
-
+  console.group(`[QuizService-Pipeline] MCQ GENERATION START`);
+  
   const prompt = `
-    You are an expert educational content generator. Analyze the following study material and generate a high-quality quiz.
+    Analyze the following study material and generate a high-quality Multiple Choice (MCQ) quiz.
     
     Material:
     ${content}
     
-    Generation Rules:
-    1. Generate exactly ${questionCount} questions based ONLY on the content provided above.
-    2. Mix Multiple Choice (mcq) and Short Answer (short_answer) questions.
-    3. For MCQs, provide exactly 4 options.
-    4. For Short Answer, provide a clear, concise correct answer and an explanation.
-    5. Ensure questions are traceable to specific topics in the material.
+    Rules:
+    1. Generate exactly ${questionCount} MCQs.
+    2. ONLY generate Multiple Choice questions. Never generate descriptive, summary, or open-ended questions.
+    3. Each question MUST have exactly 4 distinct options.
+    4. Provide exactly 1 correct answer string that matches one of the options.
+    5. ABSOLUTELY FORBIDDEN: Do not mention "parsing", "file names", or "upload artifacts".
     6. Return ONLY valid JSON in this exact structure:
        [
          {
            "id": "q1",
            "type": "mcq",
            "question": "string",
-           "options": ["string", "string", "string", "string"],
+           "options": ["A", "B", "C", "D"],
            "correctAnswer": "string",
            "explanation": "string",
            "sourceTopic": "string"
@@ -56,7 +67,7 @@ export async function generateQuizFromContent(content: string, questionCount: nu
 
   try {
     if (!apiKey) {
-      console.warn("Step 4.FAIL: No Claude API Key found. Triggering fallback...");
+      console.warn("Pipeline Fail: No API Key. Routing to Fallback MCQ Engine.");
       console.groupEnd();
       return generateFallbackQuiz(content, questionCount);
     }
@@ -71,90 +82,123 @@ export async function generateQuizFromContent(content: string, questionCount: nu
       },
       body: JSON.stringify({
         model: ANTHROPIC_MODEL,
-        max_tokens: 2000,
+        max_tokens: 3000,
         messages: [{ role: "user", content: prompt }],
       }),
     });
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      console.warn(`Step 4.FAIL: API ${response.status} Error. Triggering fallback...`);
-      console.error(errorBody);
       console.groupEnd();
       return generateFallbackQuiz(content, questionCount);
     }
 
     const data = await response.json();
     const text: string = data.content[0].text;
-    
-    // Strip markdown fences if present
     const cleaned = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-    const parsed: GeneratedQuestion[] = JSON.parse(cleaned);
+    const rawParsed: GeneratedQuestion[] = JSON.parse(cleaned);
 
-    console.log(`Step 4.SUCCESS: Received ${parsed.length} questions from AI.`);
+    const acceptedQuestions = rawParsed.filter(validateQuestionQuality);
+
+    if (acceptedQuestions.length < questionCount) {
+      const missingCount = questionCount - acceptedQuestions.length;
+      const topUp = await generateFallbackQuiz(content, missingCount);
+      const finalSet = [...acceptedQuestions, ...topUp];
+      console.groupEnd();
+      return finalSet;
+    }
+
     console.groupEnd();
-    return parsed;
+    return acceptedQuestions.slice(0, questionCount); 
 
   } catch (error) {
-    console.warn("Step 4.CRITICAL: Pipeline crashed. Triggering emergency fallback...");
-    console.error(error);
     console.groupEnd();
     return generateFallbackQuiz(content, questionCount);
   }
 }
 
 /**
- * Deterministic fallback generator for when AI fails.
- * Parses content locally to extract basic terminology and concepts.
+ * Deterministic MCQ fallback generator.
  */
 export async function generateFallbackQuiz(content: string, count: number): Promise<GeneratedQuestion[]> {
-  console.log(`[QuizService-Fallback] Rule-based extraction starting for ${count} questions...`);
+  console.log(`[QuizService-Fallback] MCQ Mode: Generating ${count} questions...`);
   
-  // Simple heuristic: find sentences that look like definitions (contain "is", "defined as", ":")
-  const sentences = content.split(/[.!?]/).map(s => s.trim()).filter(s => s.length > 20);
+  const cleanContent = content.replace(/\[Parsing Content from.*?\]/gi, "").trim();
+  const sentences = cleanContent.split(/[.!?]/).map(s => s.trim()).filter(s => s.length > 20);
   const questions: GeneratedQuestion[] = [];
 
-  for (let i = 0; i < Math.min(count, sentences.length); i++) {
-    const s = sentences[i];
-    const words = s.split(' ');
+  const emergencyQuestions = [
+    {
+      question: "Based on your general study intent, which of these is the most effective review strategy?",
+      options: ["Active Recall", "Passive Reading", "Highlighting", "Cramming"],
+      correctAnswer: "Active Recall"
+    },
+    {
+      question: "When reviewing study notes, what should be your primary focus?",
+      options: ["Understanding Core Concepts", "Memorizing Formatting", "Counting Pages", "Ignoring Difficult Sections"],
+      correctAnswer: "Understanding Core Concepts"
+    },
+    {
+      question: "Which of the following is the best indicator of true comprehension?",
+      options: ["Teaching the concept clearly to someone else", "Reading the text multiple times", "Highlighting every sentence", "Copying notes word-for-word"],
+      correctAnswer: "Teaching the concept clearly to someone else"
+    },
+    {
+      question: "What is the primary benefit of the 'spaced repetition' technique?",
+      options: ["Combats the forgetting curve over time", "Allows for easier cramming before exams", "Requires zero active effort", "Only works for vocabulary words"],
+      correctAnswer: "Combats the forgetting curve over time"
+    },
+    {
+      question: "How should you best approach difficult practice questions?",
+      options: ["Attempt them, review mistakes, and adapt", "Skip them immediately", "Look at the answer key first", "Guess randomly without reviewing"],
+      correctAnswer: "Attempt them, review mistakes, and adapt"
+    }
+  ];
+
+  for (let i = 0; i < count; i++) {
+    const id = `fb-mcq-${i}-${Date.now()}`;
     
-    if (i % 2 === 0 && words.length > 5) {
-      // Create a Short Answer question
-      questions.push({
-        id: `fb-q${i}`,
-        type: 'short_answer',
-        question: `Based on your material, explain the significance or meaning of: "${words.slice(0, 3).join(' ')}..."`,
-        correctAnswer: s,
-        explanation: "This question was derived directly from your study notes as an AI fallback.",
-        sourceTopic: "Extracted Content"
-      });
+    if (sentences.length > 0) {
+      const s = sentences[i % sentences.length];
+      
+      if (i % 2 === 0) {
+        // Validation MCQ
+        questions.push({
+          id,
+          type: 'mcq',
+          question: `According to the study material: "${s.slice(0, 100)}..."`,
+          options: ["Is a correct statement", "Is a false statement", "Is not mentioned", "Is partially true"],
+          correctAnswer: "Is a correct statement",
+          explanation: "Grounding question based on a direct excerpt from your notes.",
+          sourceTopic: "Content Review"
+        });
+      } else {
+        // Identification MCQ
+        const topic = s.split(' ').slice(0, 3).join(' ');
+        questions.push({
+          id,
+          type: 'mcq',
+          question: `Which topic is primarily addressed in the following context? "${s.slice(0, 120)}..."`,
+          options: [topic, "An unrelated concept", "A general distractor", "A contrasting idea"],
+          correctAnswer: topic,
+          explanation: "Terminology check based on context clues in the material.",
+          sourceTopic: "Terminology Extraction"
+        });
+      }
     } else {
-      // Create a dummy MCQ to maintain flow
+      // Emergency Generic MCQs (Still Objective!)
+      const eq = emergencyQuestions[i % emergencyQuestions.length];
       questions.push({
-        id: `fb-q${i}`,
+        id,
         type: 'mcq',
-        question: `True or False: The following statement is directly from your notes: "${s.slice(0, 60)}..."`,
-        options: ["True", "False", "Partially True", "Not in material"],
-        correctAnswer: "True",
-        explanation: "This verification question ensures you are reviewing the core text even if the AI is offline.",
-        sourceTopic: "Material Review"
+        question: `Question ${i + 1}: ${eq.question}`,
+        options: eq.options,
+        correctAnswer: eq.correctAnswer,
+        explanation: "Meta-cognitive review question when no specific content is found.",
+        sourceTopic: "Study Methodology"
       });
     }
   }
 
-  // If no content is found, use generic study questions
-  if (questions.length === 0) {
-    questions.push({
-      id: "fb-gen-1",
-      type: "short_answer",
-      question: "Summary Challenge: In your own words, what is the most important concept in the material you just uploaded?",
-      correctAnswer: "Refer to your original notes for the specific core concepts.",
-      explanation: "Active recall is the best way to anchor new knowledge.",
-      sourceTopic: "Overview"
-    });
-  }
-
-  console.log(`[QuizService-Fallback] SUCCESS: Generated ${questions.length} deterministic questions.`);
   return questions;
 }
 

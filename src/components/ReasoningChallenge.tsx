@@ -13,7 +13,7 @@ import {
   type StudyDocument 
 } from '../services/firebaseService';
 import { generateQuizFromContent, generateClaudeCompetitorAnswers, generateFallbackQuiz } from '../services/quizService';
-import { evaluateShortAnswer } from '../services/claudeService';
+import { cleanStudyContent } from '../services/contentService';
 import { useStore } from '../store/store';
 import QuizQuestion from './QuizQuestion';
 import { Trash2, Trash } from 'lucide-react';
@@ -30,7 +30,7 @@ type QuizPhase =
   | 'quiz' 
   | 'results';
 
-type LoadingStep = 'reading' | 'extracting' | 'generating' | 'competitor' | 'grading';
+type LoadingStep = 'reading' | 'extracting' | 'generating' | 'competitor';
 
 const TIME_PER_QUESTION = 60;
 
@@ -42,7 +42,6 @@ interface QuestionResult {
   isCorrect: boolean;
   explanation?: string;
   topic?: string;
-  feedback?: string; // Feedback from Claude
 }
 
 const ReasoningChallenge: React.FC = () => {
@@ -63,6 +62,7 @@ const ReasoningChallenge: React.FC = () => {
   const [isSoloMode, setIsSoloMode] = useState(false);
   const [savedAttemptId, setSavedAttemptId] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [isAnswering, setIsAnswering] = useState(false);
 
   const { currentQuiz, setQuiz, clearQuizAnswers } = useStore();
   const timerRef = useRef<any>(null);
@@ -90,16 +90,25 @@ const ReasoningChallenge: React.FC = () => {
     try {
       setPhase('loading');
       setLoadingStep('reading');
-      console.log(`[Challenge] Attempting to join session: ${code}`);
+      console.log(`[Challenge-Pipeline] Attempting to join session: ${code}`);
+
+      // GHOST CHECK: If we are already the host of this session (locally), don't join as guest
+      if (session?.roomCode === code && isHost) {
+        console.log(`[Challenge-Pipeline] You are already the established host. Skipping Guest-Join.`);
+        setPhase('waiting-room');
+        return;
+      }
+
       const joinedSession = await joinChallengeSession(code, USER_ID, `Student #${Math.floor(Math.random() * 999)}`);
       if (joinedSession) {
+        console.log(`[Challenge-Pipeline] Join SUCCESS. Role: Guest.`);
         setSessionState(joinedSession);
         setIsHost(false);
         setPhase('waiting-room');
         subscribeToSession(joinedSession.id);
       }
     } catch (error) {
-      console.error("[Challenge] Failed to join room:", error);
+      console.error("[Challenge-Pipeline] Failed to join room:", error);
       setPhase('selection');
       alert("Could not join room. It may be full, started, or invalid.");
     }
@@ -111,11 +120,14 @@ const ReasoningChallenge: React.FC = () => {
       
       // If host started the quiz
       if (updated.status === 'active' && phase !== 'quiz' && updated.questions?.length > 0) {
-        console.log(`[Challenge] Session ${sessionId} is now ACTIVE. Starting quiz...`);
+        console.group(`[Challenge-Pipeline] Quiz Session Activated`);
+        console.log(`Received ${updated.questions.length} questions from Firebase.`);
+        console.log(`Status: ${updated.status} | Mode: ${updated.claudeCompetitor ? 'Solo/AI' : 'Multiplayer'}`);
         setQuiz(updated.questions);
         clearQuizAnswers();
         setPhase('quiz');
         setCurrentQuestionIndex(0);
+        console.groupEnd();
       }
       
       // If everyone finished
@@ -229,12 +241,23 @@ const ReasoningChallenge: React.FC = () => {
     console.log(`[Challenge] Quiz generation started with count: ${session.questionCount}`);
     setPhase('loading');
     setLoadingStep('generating');
+    
+    console.group(`[Challenge-Pipeline] INITIATING ARENA`);
+    console.log(`Setting: { questionCount: ${session.questionCount}, docIds: ${session.docIds.length} }`);
+    console.groupEnd();
 
     try {
       const selectedDocs = documents.filter(d => session.docIds.includes(d.id!));
-      const combinedContent = selectedDocs.map(d => d.rawText).join('\n\n---\n\n');
+      const rawContent = selectedDocs.map(d => d.rawText).join('\n\n---\n\n');
       
-      const questions = await generateQuizFromContent(combinedContent, session.questionCount);
+      console.group(`[Challenge-Pipeline] Data Ingestion & Cleaning`);
+      const { cleanedText, originalLength, cleanedLength, detectedTopics } = cleanStudyContent(rawContent);
+      console.log(`Input Analysis: { originalLength: ${originalLength}, cleanedLength: ${cleanedLength}, topics: ${detectedTopics.length} }`);
+      console.groupEnd();
+
+      console.log(`[Challenge-Pipeline] Requesting ${session.questionCount} questions from Service...`);
+      const questions = await generateQuizFromContent(cleanedText, session.questionCount);
+      console.log(`[Challenge-Pipeline] Generation SUCCESS. Questions received: ${questions.length}`);
       
       let claudeCompetitor = session.claudeCompetitor || Object.keys(session.participants).length === 1;
       
@@ -242,7 +265,7 @@ const ReasoningChallenge: React.FC = () => {
       if (claudeCompetitor) {
         setLoadingStep('competitor');
         console.log(`[Challenge] Running solo/low-count mode. Claude AI joining as competitor.`);
-        const claudeAnswers = await generateClaudeCompetitorAnswers(questions, combinedContent);
+        const claudeAnswers = await generateClaudeCompetitorAnswers(questions, cleanedText);
         
         const correctCount = Object.values(claudeAnswers).filter(a => a.isCorrect).length;
         claudeData = {
@@ -254,6 +277,7 @@ const ReasoningChallenge: React.FC = () => {
         };
       }
 
+      console.log(`[Challenge-Pipeline] Updating session ${session.id} with ${questions.length} questions.`);
       await updateSession(session.id, {
         questions,
         status: 'active',
@@ -303,63 +327,43 @@ const ReasoningChallenge: React.FC = () => {
   };
 
   const handleAnswer = async (answer: string, isCorrect?: boolean) => {
+    if (isAnswering) return;
+    setIsAnswering(true); // LOCKOUT: prevent double-clicks
+    
     if (timerRef.current) clearInterval(timerRef.current);
     const currentQuestion = currentQuiz![currentQuestionIndex];
     
-    let finalIsCorrect = isCorrect;
-    let feedback = undefined;
-
-    // Descriptive answer evaluation
-    if (currentQuestion.type === 'short_answer') {
-      console.log(`[Challenge] Descriptive answer evaluation started for ${currentQuestion.id}`);
-      setPhase('loading');
-      setLoadingStep('grading');
-      
-      try {
-        const evalResult = await evaluateShortAnswer(
-          currentQuestion.question,
-          answer,
-          currentQuestion.correctAnswer,
-          currentQuestion.explanation
-        );
-        finalIsCorrect = evalResult.isCorrect;
-        feedback = evalResult.feedback;
-        console.log(`[Challenge] Evaluation result: ${finalIsCorrect ? 'CORRECT' : 'INCORRECT'}`);
-      } catch (err) {
-        console.warn("[Challenge] Grading failed. Using simple text match fallback.");
-        const normUser = answer.toLowerCase().trim();
-        const normCorrect = currentQuestion.correctAnswer.toLowerCase().trim();
-        finalIsCorrect = normUser === normCorrect || normUser.includes(normCorrect) || normCorrect.includes(normUser);
-        feedback = "Result based on simple text matching due to evaluation timeout.";
-      }
-      setPhase('quiz');
-    }
+    console.log(`[Challenge-Pipeline] Question ${currentQuestionIndex + 1} Answered. Correct: ${isCorrect}`);
 
     const result: QuestionResult = {
       questionId: currentQuestion.id,
       questionText: currentQuestion.question,
       userAnswer: answer,
       correctAnswer: currentQuestion.correctAnswer,
-      isCorrect: !!finalIsCorrect,
+      isCorrect: !!isCorrect,
       explanation: currentQuestion.explanation,
-      topic: currentQuestion.sourceTopic,
-      feedback
+      topic: currentQuestion.sourceTopic
     };
 
     const newResults = [...results, result];
     setResults(newResults);
 
+    // DETERMINISTIC NEXT: Pass the check logic to the timeout
+    const isLast = currentQuestionIndex >= (currentQuiz?.length || 0) - 1;
+
     setTimeout(async () => {
-      if (currentQuestionIndex < (currentQuiz?.length || 0) - 1) {
+      setIsAnswering(false); // RELEASE LOCKOUT
+      if (!isLast) {
+        setTimeLeft(TIME_PER_QUESTION); // Sync timer reset with index change
         setCurrentQuestionIndex(prev => prev + 1);
       } else {
         await finishQuiz(newResults);
       }
-    }, 600);
+    }, 450);
   };
 
   const finishQuiz = async (finalResults: QuestionResult[]) => {
-    console.log(`[Challenge] Quiz finished. Preparing result persistence...`);
+    console.log(`[Challenge-Pipeline] SESSION FINISHING: Persistence initiated.`);
     
     const correctCount = finalResults.filter(r => r.isCorrect).length;
     const totalQuestions = finalResults.length;
@@ -373,28 +377,26 @@ const ReasoningChallenge: React.FC = () => {
       answers: finalResults.reduce((acc, r) => ({...acc, [r.questionId]: r.userAnswer}), {})
     };
 
-    // Save real quiz attempt to Firebase
     try {
       const selectedDocs = documents.filter(d => (session?.docIds || Array.from(selectedDocIds)).includes(d.id!));
       const attempt: Omit<QuizAttempt, "id"> = {
         createdAt: new Date(),
         selectedDocumentIds: session?.docIds || Array.from(selectedDocIds),
         selectedFileNames: session?.docNames || selectedDocs.map(d => d.fileName),
-        totalQuestions: totalQuestions,
-        score: correctCount * 10,
+        totalQuestions,
+        score: participantResults.score,
         correctCount,
         wrongCount: totalQuestions - correctCount,
         accuracy,
-        questionResults: finalResults.map((r, idx) => ({
-          questionId: r.questionId || `q-${idx}`,
-          questionText: r.questionText || "Unknown Question",
-          type: (session?.questions?.[idx]?.type || currentQuiz?.[idx]?.type || 'short_answer'),
-          userAnswer: r.userAnswer || "N/A",
-          correctAnswer: r.correctAnswer || "N/A",
+        questionResults: finalResults.map((r) => ({
+          questionId: r.questionId,
+          questionText: r.questionText,
+          type: "mcq",
+          userAnswer: r.userAnswer,
+          correctAnswer: r.correctAnswer,
           isCorrect: !!r.isCorrect,
           explanation: r.explanation || null,
-          topic: r.topic || "General",
-          feedback: r.feedback || null
+          topic: r.topic || "General"
         })),
         weakTopics: Array.from(new Set(finalResults.filter(r => !r.isCorrect).map(r => r.topic || 'General'))),
         strongTopics: Array.from(new Set(finalResults.filter(r => r.isCorrect).map(r => r.topic || 'General'))),
@@ -415,6 +417,13 @@ const ReasoningChallenge: React.FC = () => {
       const attemptId = await saveQuizAttempt(attempt);
       setSavedAttemptId(attemptId);
       
+      // Analytics Logging
+      console.group("[Challenge-ANALYTICS] Session Summary");
+      console.log(`User: ${USER_ID} | Score: ${attempt.score} | Accuracy: ${attempt.accuracy}%`);
+      console.log(`Questions: ${totalQuestions} | Correct: ${correctCount}`);
+      console.log(`Attempt ID: ${attemptId}`);
+      console.groupEnd();
+
       // GROUNDING: Update the global store immediately so other tabs react
       const newAllAttempts = [{ id: attemptId || Date.now().toString(), ...attempt }, ...allAttempts];
       useStore.getState().setAllAttempts(newAllAttempts);
@@ -438,7 +447,7 @@ const ReasoningChallenge: React.FC = () => {
         await updateSession(session.id, { status: 'completed' });
       } else {
         setPhase('loading');
-        setLoadingStep('grading'); // Reused grading for "waiting for others"
+        setLoadingStep('competitor'); // Use competitor loading for "waiting for others"
       }
     } else {
       setPhase('results');
@@ -451,7 +460,12 @@ const ReasoningChallenge: React.FC = () => {
     if (!session) return [];
     return Object.values(session.participants)
       .filter(p => p.results)
-      .sort((a, b) => (b.results?.score || 0) - (a.results?.score || 0));
+      .sort((a, b) => {
+        // Sort by Score, then by Accuracy as a tie-breaker
+        const scoreDiff = (b.results?.score || 0) - (a.results?.score || 0);
+        if (scoreDiff !== 0) return scoreDiff;
+        return (b.results?.accuracy || 0) - (a.results?.accuracy || 0);
+      });
   };
 
   const copyRoomCode = () => {
@@ -651,12 +665,21 @@ const ReasoningChallenge: React.FC = () => {
             <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">{isSoloMode ? "Competitors" : `Joined Players (${players.length})`}</h3>
             <div className="grid gap-3">
               {players.map((p, i) => (
-                <div key={i} className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex items-center justify-between">
+                <div key={p.uid || i} className={`p-4 rounded-2xl border flex items-center justify-between transition-all ${p.uid === USER_ID ? 'bg-white/[0.06] border-white/10 shadow-lg' : 'bg-white/[0.03] border-white/5'}`}>
                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 font-bold text-xs">{p.name[0]}</div>
-                      <span className="font-bold text-white">{p.name} {p.uid === USER_ID && "(You)"}</span>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${p.isHost ? 'bg-purple-500/20 text-purple-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                        {p.name ? p.name[0] : '?'}
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-white text-sm">
+                          {p.name} {p.uid === USER_ID && "(You)"}
+                        </span>
+                        {p.isHost && <span className="text-[10px] font-black text-purple-500 uppercase tracking-widest">Room Host</span>}
+                      </div>
                    </div>
-                   {p.isHost && <span className="text-[10px] font-black text-purple-500 uppercase">Host</span>}
+                   {p.status === 'finished' && (
+                     <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px] font-black uppercase">Ready</span>
+                   )}
                 </div>
               ))}
               {isSoloMode && (
@@ -692,8 +715,6 @@ const ReasoningChallenge: React.FC = () => {
           <div className="absolute inset-0 rounded-full border-4 border-purple-500/10" />
           <div className="absolute inset-0 rounded-full border-4 border-purple-500 border-t-transparent animate-spin" />
         </div>
-        <p className="text-xl font-bold text-white transition-all">{loadingStep.toUpperCase()}...</p>
-        {loadingStep === 'grading' && <p className="text-gray-500 text-sm mt-4 italic">Claude AI is evaluating your explanation...</p>}
         {loadingStep === 'competitor' && <p className="text-gray-500 text-sm mt-4 italic">Waiting for other participants to finish...</p>}
       </div>
     );
@@ -708,30 +729,43 @@ const ReasoningChallenge: React.FC = () => {
              <h2 className="text-xl font-black">Question {currentQuestionIndex + 1} of {currentQuiz.length}</h2>
              <span className="text-xs font-bold text-gray-500">{timeLeft}s remaining</span>
            </div>
-           <div className="w-48 h-3 bg-white/5 rounded-full overflow-hidden">
-             <div className="h-full bg-purple-500 transition-all duration-1000" style={{ width: `${(timeLeft / TIME_PER_QUESTION) * 100}%` }} />
+           <div className="w-48 h-3 bg-white/10 rounded-full overflow-hidden border border-white/5 ring-1 ring-purple-500/20 shadow-inner">
+             <div 
+               className={`h-full bg-gradient-to-r from-purple-500 to-pink-500 ease-linear shadow-[0_0_15px_rgba(168,85,247,0.4)] ${timeLeft === TIME_PER_QUESTION ? 'transition-none' : 'transition-all duration-1000'}`} 
+               style={{ width: `${(timeLeft / TIME_PER_QUESTION) * 100}%` }} 
+             />
            </div>
         </div>
-        <QuizQuestion question={q} onAnswer={handleAnswer} />
+        <QuizQuestion 
+          key={currentQuestionIndex}
+          question={q} 
+          onAnswer={handleAnswer} 
+          disabled={isAnswering} 
+        />
       </div>
     );
   }
 
   if (phase === 'results') {
     const leaderboard = getLeaderboard();
-    const winner = leaderboard[0];
+    const hasAnyPoints = leaderboard.some(p => (p.results?.score || 0) > 0);
+    const winner = hasAnyPoints ? leaderboard[0] : null;
 
     return (
       <div className="max-w-5xl mx-auto py-12 px-6 animate-slide-up">
         {/* Winner Announcement */}
         <div className="text-center mb-16">
-          <div className="w-24 h-24 bg-yellow-500/10 rounded-[2rem] flex items-center justify-center mx-auto mb-8 border-2 border-yellow-500/20 text-yellow-400 rotate-12 shadow-2xl shadow-yellow-500/10">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+          <div className={`w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto mb-8 border-2 rotate-12 shadow-2xl ${winner ? 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400 shadow-yellow-500/10' : 'bg-gray-500/10 border-white/10 text-gray-400 shadow-white/5'}`}>
+            {winner ? (
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+            ) : (
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            )}
           </div>
           <h2 className="text-6xl font-black text-white tracking-tighter mb-2">
-            {winner?.uid === USER_ID ? "Victory! 🏆" : (winner?.uid === 'claude_ai' ? "Claude AI Wins! 🤖" : (winner ? `${winner.name} Wins!` : "Challenge Complete"))}
+            {!hasAnyPoints ? "No One Won! 😅" : (winner?.uid === USER_ID ? "Victory! 🏆" : (winner?.uid === 'claude_ai' ? "Claude AI Wins! 🤖" : `${winner?.name || 'Player'} Wins!`))}
           </h2>
-          <p className="text-gray-500 font-bold text-xl">{session?.claudeCompetitor ? "Against the Grandmaster Claude AI" : "Live Challenge Comparison"}</p>
+          <p className="text-gray-500 font-bold text-xl">{!hasAnyPoints ? "Everyone finished with 0 pts. Practice makes perfect!" : (session?.claudeCompetitor ? "Against the Grandmaster Claude AI" : "Live Challenge Comparison")}</p>
           {savedAttemptId && <p className="text-xs text-purple-500 font-bold mt-2 uppercase tracking-widest">Attempt Saved: {savedAttemptId}</p>}
         </div>
 
@@ -780,8 +814,7 @@ const ReasoningChallenge: React.FC = () => {
         <div className="space-y-6 mb-20 animate-fade-in" key={activeReviewPlayer}>
            {(session ? session.questions : currentQuiz!).map((q, idx) => {
              const userAns = session ? session.participants[activeReviewPlayer]?.results?.answers[q.id] : results[idx]?.userAnswer;
-             const isCorrect = session ? (userAns === q.correctAnswer || (q.type === 'short_answer' && results[idx]?.isCorrect)) : results[idx]?.isCorrect;
-             const feedback = results[idx]?.feedback;
+             const isCorrect = session ? (userAns === q.correctAnswer) : results[idx]?.isCorrect;
 
              return (
                <div key={idx} className={`glass rounded-3xl p-8 border-2 ${isCorrect ? 'border-emerald-500/10' : 'border-red-500/10'}`}>
@@ -801,12 +834,6 @@ const ReasoningChallenge: React.FC = () => {
                        <p className="text-white">{q.correctAnswer}</p>
                     </div>
                  </div>
-                 {feedback && (
-                   <div className="p-4 rounded-2xl bg-purple-500/5 border border-purple-500/10">
-                      <p className="text-purple-400 uppercase text-[10px] mb-1 font-black tracking-widest">AI Feedback</p>
-                      <p className="text-gray-300 italic">"{feedback}"</p>
-                   </div>
-                 )}
                </div>
              );
            })}

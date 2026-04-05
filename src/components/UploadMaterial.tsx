@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileText, Cloud, CheckCircle2 } from 'lucide-react';
+import { Upload, FileText, Cloud, CheckCircle2, Loader2 } from 'lucide-react';
+import { extractTextFromPDF } from '../services/pdfService';
 
 interface UploadMaterialProps {
   content: string;
@@ -15,6 +16,7 @@ const UploadMaterial: React.FC<UploadMaterialProps> = ({ content, onContentChang
   const [mode, setMode] = useState<UploadMode>('paste');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDrag = (e: React.DragEvent) => {
@@ -42,23 +44,37 @@ const UploadMaterial: React.FC<UploadMaterialProps> = ({ content, onContentChang
     setSelectedFile(file);
     
     // For now, read text files directly. PDF/DOCX parsing UI can go here later.
-    if (file.type === "text/plain") {
+    if (file.type === "application/pdf") {
+      setIsParsing(true);
+      try {
+        console.log(`Step 2: PDF detected. Initializing browser-side analysis...`);
+        const text = await extractTextFromPDF(file);
+        console.log(`Step 3: Extraction SUCCESS! Total Chars: ${text.length}`);
+        onContentChange(text);
+        setMode('paste'); // Switch to preview
+      } catch (err: any) {
+        console.error(`Step 3.FAIL: Parsing failed.`, err);
+        alert(`Could not extract text from this PDF. It might be an image-only scan or password protected.`);
+      } finally {
+        setIsParsing(false);
+        console.groupEnd();
+      }
+    } else if (file.type === "text/plain") {
       console.log(`Step 2: Initializing FileReader for .txt content...`);
       const reader = new FileReader();
       reader.onload = (e) => {
         const text = e.target?.result as string;
         console.log(`Step 3: Extraction SUCCESS! Content Length: ${text.length} chars.`);
         onContentChange(text);
-        console.groupEnd();
-      };
-      reader.onerror = (err) => {
-        console.error(`Step 3.FAIL: Error reading file with FileReader`, err);
+        setMode('paste');
         console.groupEnd();
       };
       reader.readAsText(file);
     } else {
-      console.log(`Step 2: Non-text file detected. Triggering placeholder parsing...`);
-      onContentChange(`[Parsing Content from ${file.name}...]`);
+      console.log(`Step 2: Non-text file detected. Informing user of limited extraction.`);
+      onContentChange(""); 
+      alert(`Note: Direct parsing for ${file.name.split('.').pop()?.toUpperCase()} is limited in this beta. For best results, please copy and paste the text from your document directly into the 'Paste Text' tab.`);
+      setMode('paste');
       console.groupEnd();
     }
   };
@@ -212,14 +228,26 @@ const UploadMaterial: React.FC<UploadMaterialProps> = ({ content, onContentChang
       <div className="mt-12">
         <button 
           onClick={() => onStart(selectedFile?.name || "Manual Upload")}
-          disabled={isSaving || (mode === 'paste' && !content.trim()) || (mode === 'file' && !selectedFile) || mode === 'drive'}
-          className={`btn-premium w-full py-7 rounded-[2.5rem] font-black text-2xl shadow-xl shadow-purple-500/20 cursor-pointer transition-all ${
-            isSaving || (mode === 'paste' && !content.trim()) || (mode === 'file' && !selectedFile) || mode === 'drive' 
+          disabled={isSaving || isParsing || (mode === 'paste' && !content.trim()) || (mode === 'file' && !selectedFile) || mode === 'drive'}
+          className={`btn-premium w-full py-7 rounded-[2.5rem] font-black text-2xl shadow-xl shadow-purple-500/20 cursor-pointer transition-all flex items-center justify-center gap-3 ${
+            isSaving || isParsing || (mode === 'paste' && !content.trim()) || (mode === 'file' && !selectedFile) || mode === 'drive' 
               ? 'opacity-50 grayscale cursor-not-allowed' 
               : 'hover:scale-[1.01]'
           }`}
         >
-          {isSaving ? 'Saving Study Material...' : ctaLabel}
+          {isSaving ? (
+            <>
+              <Loader2 className="animate-spin" size={24} />
+              Saving Study Material...
+            </>
+          ) : isParsing ? (
+            <>
+              <Loader2 className="animate-spin" size={24} />
+              Analyzing Document Context...
+            </>
+          ) : (
+            ctaLabel
+          )}
         </button>
       </div>
     </div>

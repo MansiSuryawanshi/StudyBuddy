@@ -1,4 +1,4 @@
-export type QuestionType = "mcq" | "short_answer";
+export type QuestionType = "mcq";
 
 export interface GeneratedQuestion {
   id: string;
