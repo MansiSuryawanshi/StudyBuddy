@@ -23,12 +23,17 @@ function buildHeaders() {
   };
 }
 
-function stripFences(text: string): string {
-  return text
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/, '')
-    .trim();
+function extractJson(text: string): string {
+  // Strip markdown fences (handles ```json, ```, multiline)
+  let cleaned = text.replace(/```(?:json)?\s*([\s\S]*?)\s*```/i, '$1').trim();
+  // If no fences were found, use original text
+  if (cleaned === text.trim()) cleaned = text.trim();
+  // If still doesn't start with { or [, pull out the first JSON block
+  if (cleaned[0] !== '{' && cleaned[0] !== '[') {
+    const m = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (m) cleaned = m[1];
+  }
+  return cleaned;
 }
 
 // ── scoreAnswers ─────────────────────────────────────────────────────────────
@@ -69,7 +74,7 @@ export async function scoreAnswers(
   }
 
   const data = await response.json() as { content: { text: string }[] };
-  return JSON.parse(stripFences(data.content[0].text)) as ScoreResult;
+  return JSON.parse(extractJson(data.content[0].text)) as ScoreResult;
 }
 
 // ── generateFollowUp ─────────────────────────────────────────────────────────
@@ -92,7 +97,7 @@ export const generateFollowUp = async (
   });
   if (!res.ok) throw new Error(`Claude API error ${res.status}: ${res.statusText}`);
   const data = await res.json() as { content: { text: string }[] };
-  return JSON.parse(stripFences(data.content[0].text)) as FollowUpResult;
+  return JSON.parse(extractJson(data.content[0].text)) as FollowUpResult;
 };
 
 // ── detectMisconception ──────────────────────────────────────────────────────
@@ -120,37 +125,32 @@ export const generateSchedule = async (
   gaps: string[],
   avgScore: number,
   daysToExam: number = 7,
+  topicAccuracy?: { topic: string; accuracy: number }[],
 ): Promise<ScheduleResponse> => {
   const apiKey = getApiKey();
 
+  // Build per-topic accuracy context so Claude allocates more time to weak topics
+  const topicContext = topicAccuracy && topicAccuracy.length > 0
+    ? `\nPer-topic quiz accuracy (lower = needs more study time):\n${topicAccuracy
+        .sort((a, b) => a.accuracy - b.accuracy)
+        .map(t => `  - ${t.topic}: ${t.accuracy}% correct`)
+        .join('\n')}`
+    : '';
+
   const prompt = `You are an adaptive learning coach for college students.
 
-The student has these concept gaps identified from recent sessions:
-Gaps: ${JSON.stringify(gaps)}
+The student has these concept gaps identified from recent quiz sessions:
+Gaps (sorted weakest first): ${JSON.stringify(gaps)}
 Average understanding score: ${avgScore}/100
-Days until exam: ${daysToExam}
+Days until exam: ${daysToExam}${topicContext}
 
-Generate a 3-day study schedule that targets these gaps.
-Return ONLY valid JSON, no extra text:
-{
-  "schedule": [
-    {
-      "day": "Today · Monday",
-      "sessions": [
-        {
-          "time": "9:00 am",
-          "label": "session name",
-          "topic_tag": "gap focus",
-          "duration": "30 min",
-          "badge_type": "coral",
-          "targets_gap": "which gap this addresses or null"
-        }
-      ]
-    }
-  ],
-  "priority_gap": "the most urgent gap to close",
-  "readiness_message": "one sentence on exam readiness"
-}`;
+IMPORTANT RULES:
+- Topics with lower accuracy MUST get more sessions and longer durations (e.g. 60 min instead of 30 min)
+- The weakest topic should appear in every day's schedule
+- Use badge_type "coral" for gap topics, "purple" for challenge/practice, "teal" for review
+
+Generate a 3-day study schedule. Return ONLY a raw JSON object, no markdown, no backticks, no explanation:
+{"schedule":[{"day":"Today · Monday","sessions":[{"time":"9:00 am","label":"session name","topic_tag":"gap focus","duration":"45 min","badge_type":"coral","targets_gap":"gap name or null"}]}],"priority_gap":"most urgent gap","readiness_message":"one sentence"}`;
 
   if (!apiKey) return buildMockSchedule(gaps);
 
@@ -172,7 +172,7 @@ Return ONLY valid JSON, no extra text:
 
   const data = await response.json() as { content: { text: string }[] };
   try {
-    return JSON.parse(stripFences(data.content[0].text)) as ScheduleResponse;
+    return JSON.parse(extractJson(data.content[0].text)) as ScheduleResponse;
   } catch {
     throw new Error('Claude returned invalid JSON. Try regenerating.');
   }
@@ -251,7 +251,7 @@ Return this exact JSON structure:
 
   const data = await response.json() as { content: { text: string }[] };
   try {
-    return JSON.parse(stripFences(data.content[0].text)) as GeneratedReport;
+    return JSON.parse(extractJson(data.content[0].text)) as GeneratedReport;
   } catch {
     throw new Error('Claude returned invalid JSON for the report. Try again.');
   }
@@ -345,5 +345,5 @@ export const evaluateDefense = async (
   });
   if (!res.ok) throw new Error(`Claude API error ${res.status}: ${res.statusText}`);
   const data = await res.json() as { content: { text: string }[] };
-  return JSON.parse(stripFences(data.content[0].text)) as DefenseEvaluation;
+  return JSON.parse(extractJson(data.content[0].text)) as DefenseEvaluation;
 };

@@ -1,8 +1,13 @@
 /**
- * Three metric summary cards reading live values from the store.
+ * Three metric summary cards — driven by props from StudySchedule.
  */
 import React from 'react';
-import { useStore } from '../store/store';
+
+interface MetricsRowProps {
+  challengesDone: number;
+  avgScore: number;
+  gapsCount: number;
+}
 
 function MetricCard({ label, value, sub, icon }: { label: string; value: number; sub?: string; icon: string }) {
   return (
@@ -17,24 +22,12 @@ function MetricCard({ label, value, sub, icon }: { label: string; value: number;
   );
 }
 
-export const MetricsRow: React.FC = () => {
-  const session = useStore((state) => state.session);
-  const scores = Object.values(session?.scores ?? {});
-
-  const challengesDone = scores.length;
-  const avgUnderstanding =
-    scores.length === 0 ? 0
-      : Math.round(scores.reduce((sum, s) => sum + s.student_a.total, 0) / scores.length);
-  const allGaps = [...new Set([
-    ...scores.map((s) => s.student_a.concept_gap).filter((g): g is string => g !== null),
-    ...scores.map((s) => s.student_b.concept_gap).filter((g): g is string => g !== null),
-  ])];
-
+export const MetricsRow: React.FC<MetricsRowProps> = ({ challengesDone, avgScore, gapsCount }) => {
   return (
     <div className="flex gap-4 mb-8">
-      <MetricCard icon="🎯" label="Challenges done" value={challengesDone} />
-      <MetricCard icon="🧠" label="Avg understanding" value={avgUnderstanding} sub="/100" />
-      <MetricCard icon="⚡" label="Gaps to close" value={allGaps.length} />
+      <MetricCard icon="🎯" label="Challenges done"   value={challengesDone} />
+      <MetricCard icon="🧠" label="Avg understanding" value={avgScore} sub="/100" />
+      <MetricCard icon="⚡" label="Gaps to close"     value={gapsCount} />
     </div>
   );
 };
