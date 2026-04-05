@@ -93,6 +93,7 @@ export interface QuizAttempt {
     correctAnswer: string;
     isCorrect: boolean;
     explanation?: string;
+    topic?: string;
   }[];
   weakTopics: string[];
   strongTopics: string[];
@@ -136,4 +137,35 @@ export interface QuizAnswer {
   questionId: string;
   sourceTopic: string;
   isCorrect: boolean | null; // null = ungraded short-answer
+}
+
+// ── Multiplayer / Challenge Types ─────────────────────────────────────────────
+
+export interface Participant {
+  uid: string;
+  name: string;
+  isHost: boolean;
+  joinedAt: any;
+  status: 'answering' | 'finished';
+  results?: {
+    score: number;
+    correctCount: number;
+    wrongCount: number;
+    accuracy: number;
+    answers: Record<string, string>; // questionId -> answer
+  };
+}
+
+export interface ChallengeSession {
+  id: string;
+  roomCode: string;
+  hostId: string;
+  docIds: string[];
+  docNames: string[];
+  questionCount: number;
+  status: 'waiting' | 'loading' | 'active' | 'completed';
+  questions: GeneratedQuestion[];
+  participants: Record<string, Participant>; // uid -> Participant
+  claudeCompetitor?: boolean;
+  createdAt: any;
 }

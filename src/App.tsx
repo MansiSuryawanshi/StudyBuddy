@@ -40,6 +40,12 @@ const App: React.FC = () => {
 
   useEffect(() => { 
     setSession(DEMO_SESSION); 
+
+    // Handle deep link to challenge room
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('roomId') || params.get('roomCode')) {
+      setActiveTab(2);
+    }
   }, [setSession]);
 
   const goToUpload = () => setActiveTab(1);
