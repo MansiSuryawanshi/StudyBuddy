@@ -5,6 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { ScheduleResponse } from '../types';
 import { useStore } from '../store/store';
 import { generateSchedule } from '../services/claudeService';
+import { getUserQuizAttempts } from '../services/firebaseService';
 import { MetricsRow } from './MetricsRow';
 import { DayScheduleCard } from './DayScheduleCard';
 
@@ -13,46 +14,88 @@ interface StudyScheduleProps {
 }
 
 export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChallenge }) => {
-  const session = useStore((state) => state.session);
   const cachedSchedule = useStore((state) => state.schedule);
   const setSchedule = useStore((state) => state.setSchedule);
 
-  const scores = Object.values(session?.scores ?? {});
-  const conceptGaps = [...new Set([
-    ...scores.map((s) => s.student_a.concept_gap).filter((g): g is string => g !== null),
-    ...scores.map((s) => s.student_b.concept_gap).filter((g): g is string => g !== null),
-  ])];
-  const avgScore =
-    scores.length === 0 ? 0
-      : Math.round(scores.reduce((sum, s) => sum + s.student_a.total, 0) / scores.length);
-
   const [localSchedule, setLocalSchedule] = useState<ScheduleResponse | null>(cachedSchedule);
   const [loading, setLoading] = useState(false);
+  const [loadingAttempts, setLoadingAttempts] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [newGapsNudge, setNewGapsNudge] = useState(false);
 
-  const prevGapCount = useRef(conceptGaps.length);
+  // Data derived from latest Firebase quiz attempt
+  const [conceptGaps, setConceptGaps] = useState<string[]>([]);
+  const [topicAccuracy, setTopicAccuracy] = useState<{ topic: string; accuracy: number }[]>([]);
+  const [avgScore, setAvgScore] = useState(0);
+  const [challengesDone, setChallengesDone] = useState(0);
 
-  useEffect(() => {
-    if (conceptGaps.length > prevGapCount.current && localSchedule !== null) {
-      setNewGapsNudge(true);
-    }
-    prevGapCount.current = conceptGaps.length;
-  }, [conceptGaps.length, localSchedule]);
+  const prevGapCount = useRef(0);
 
+  // Load latest quiz attempt from Firebase on mount
   useEffect(() => {
-    if (conceptGaps.length > 0 && localSchedule === null) {
-      void fetchSchedule();
-    }
+    const loadAttempts = async () => {
+      setLoadingAttempts(true);
+      try {
+        const attempts = await getUserQuizAttempts(); // ordered by createdAt desc
+        setChallengesDone(attempts.length);
+
+        if (attempts.length === 0) {
+          setLoadingAttempts(false);
+          return;
+        }
+
+        const latest = attempts[0];
+
+        // Build per-topic accuracy from weakTopics / strongTopics
+        const weakSet = new Set(latest.weakTopics);
+        const strongSet = new Set(latest.strongTopics);
+        const allTopics = [...new Set([...latest.weakTopics, ...latest.strongTopics])];
+
+        const accuracy = allTopics.map(topic => {
+          const inWeak   = weakSet.has(topic);
+          const inStrong = strongSet.has(topic);
+          if (inWeak && !inStrong)  return { topic, accuracy: 0 };
+          if (!inWeak && inStrong)  return { topic, accuracy: 100 };
+          return { topic, accuracy: 50 }; // appears in both
+        });
+
+        // Sort weakest first
+        accuracy.sort((a, b) => a.accuracy - b.accuracy);
+        setTopicAccuracy(accuracy);
+
+        const gaps = accuracy.filter(t => t.accuracy < 70).map(t => t.topic);
+        setConceptGaps(gaps);
+        setAvgScore(latest.accuracy);
+
+        // Auto-generate schedule if none cached
+        if (cachedSchedule === null && gaps.length > 0) {
+          void fetchScheduleWith(gaps, latest.accuracy, accuracy);
+        }
+
+        if (gaps.length > prevGapCount.current && localSchedule !== null) {
+          setNewGapsNudge(true);
+        }
+        prevGapCount.current = gaps.length;
+      } catch (e) {
+        console.error('[StudySchedule] Failed to load quiz attempts:', e);
+      } finally {
+        setLoadingAttempts(false);
+      }
+    };
+    void loadAttempts();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchSchedule = async () => {
+  const fetchScheduleWith = async (
+    gaps: string[],
+    score: number,
+    accuracy: { topic: string; accuracy: number }[],
+  ) => {
     setLoading(true);
     setError(null);
     setNewGapsNudge(false);
     try {
-      const result = await generateSchedule(conceptGaps, avgScore);
+      const result = await generateSchedule(gaps, score, 7, accuracy);
       setLocalSchedule(result);
       setSchedule(result);
     } catch (err) {
@@ -62,11 +105,28 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
     }
   };
 
+  const fetchSchedule = () => fetchScheduleWith(conceptGaps, avgScore, topicAccuracy);
+
   const totalSessions =
     localSchedule?.schedule.reduce((sum, day) => sum + day.sessions.length, 0) ?? 0;
 
+  // ── Loading quiz attempts from Firebase ──────────────────────────────────
+  if (loadingAttempts) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center">
+        <div className="text-center">
+          <div className="relative w-16 h-16 mx-auto mb-6">
+            <div className="absolute inset-0 rounded-full border-4 border-purple-500/10" />
+            <div className="absolute inset-0 rounded-full border-4 border-purple-500 border-t-transparent animate-spin" />
+          </div>
+          <p className="text-gray-400">Loading your quiz results…</p>
+        </div>
+      </div>
+    );
+  }
+
   // ── Empty state ──────────────────────────────────────────────────────────
-  if (conceptGaps.length === 0 && localSchedule === null) {
+  if (challengesDone === 0 && localSchedule === null) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center px-6 text-center">
         {/* Glow orb */}
@@ -134,7 +194,11 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
       )}
 
       {/* Metrics */}
-      <MetricsRow />
+      <MetricsRow
+        challengesDone={challengesDone}
+        avgScore={avgScore}
+        gapsCount={conceptGaps.length}
+      />
 
       {/* Loading */}
       {loading && (
