@@ -4,7 +4,7 @@ import { TopicCoverage } from './TopicCoverage';
 import { WeakAreas } from './WeakAreas';
 import { CrossExamination } from './CrossExamination';
 import { useStore } from '../store/store';
-import { getUserQuizAttempts, getExamDate, saveExamDate } from '../services/firebaseService';
+import { saveExamDate } from '../services/firebaseService';
 import { deriveStudentAnalytics, mapStatsToProgress } from '../services/analyticsService';
 
 export const ExamPrep: React.FC = () => {
@@ -13,11 +13,19 @@ export const ExamPrep: React.FC = () => {
   const setWeakAreas     = useStore((s) => s.setWeakAreas);
   const setReadinessScore = useStore((s) => s.setReadinessScore);
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasData, setHasData] = useState(false);
-  const [examDate, setExamDateState] = useState<string | null>(null);
-  const [daysLeft, setDaysLeft] = useState<number | null>(null);
+  // Centralized State from Store
+  const examDate    = useStore((s) => s.examDate);
+  const setExamDate = useStore((s) => s.setExamDate);
+  const daysLeft    = useStore((s) => s.daysLeft);
+  const setDaysLeft = useStore((s) => s.setDaysLeft);
+  const allAttempts = useStore((s) => s.allAttempts);
+  const isInitialLoadComplete = useStore((s) => s.isInitialLoadComplete);
+
+  const [isLoading, setIsLoading] = useState(!isInitialLoadComplete);
   const [isEditingDate, setIsEditingDate] = useState(false);
+
+  // Derived check for empty state
+  const hasData = allAttempts.length > 0;
 
   /** Standard calculation for the countdown. */
   const calculateDaysLeft = (targetDate: string) => {
@@ -27,56 +35,40 @@ export const ExamPrep: React.FC = () => {
     target.setHours(0, 0, 0, 0);
 
     const diffTime = target.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    console.log(`[ExamPrep] Countdown: ${diffDays} days left until ${targetDate}`);
-    return diffDays;
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
 
-  // Re-derive all Exam Prep data from real Firebase history.
+  // Reactive Derivation: Triggered whenever history OR exam date changes.
   useEffect(() => {
-    const loadData = async () => {
-      setIsLoading(true);
-      try {
-        const attempts = await getUserQuizAttempts();
-        
-        // 2. Load Exam Date
-        const savedDate = await getExamDate();
-        let currentDaysLeft: number | null = null;
-        if (savedDate) {
-          const dl = calculateDaysLeft(savedDate);
-          setExamDateState(savedDate);
-          setDaysLeft(dl);
-          currentDaysLeft = dl;
-          console.log(`[ExamPrep] Persistent exam date loaded: ${savedDate}. Days left: ${dl}`);
-        }
+    if (!isInitialLoadComplete && allAttempts.length === 0) return;
 
-        const analytics = deriveStudentAnalytics(attempts, currentDaysLeft);
-        setTopicProgress(mapStatsToProgress(analytics.topicStats));
-        setWeakAreas(analytics.weakTopics);
-        setReadinessScore(analytics.readinessScore);
-        setHasData(attempts.length > 0);
-      } catch (err) {
-        console.error("[ExamPrep] Data loading failed:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    console.group("[ExamPrep-REACTIVE] Syncing Analytics");
+    const analytics = deriveStudentAnalytics(allAttempts, daysLeft);
     
-    loadData();
-  }, [setTopicProgress, setWeakAreas, setReadinessScore]);
+    setTopicProgress(mapStatsToProgress(analytics.topicStats));
+    setWeakAreas(analytics.weakTopics);
+    setReadinessScore(analytics.readinessScore);
+    setIsLoading(false);
+    
+    console.log(`Analytics Derived | Readiness: ${analytics.readinessScore}% | Topics: ${analytics.topicStats.length}`);
+    console.groupEnd();
+  }, [allAttempts, examDate, daysLeft, setTopicProgress, setWeakAreas, setReadinessScore, isInitialLoadComplete]);
 
   const handleDateChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const newDate = e.target.value;
     if (!newDate) return;
 
-    setExamDateState(newDate);
-    setDaysLeft(calculateDaysLeft(newDate));
+    const ds = calculateDaysLeft(newDate);
+    console.log(`[ExamPrep-SYNC] New Date: ${newDate} (${ds} days)`);
+    
+    setExamDate(newDate);
+    setDaysLeft(ds);
     setIsEditingDate(false);
     
     try {
       await saveExamDate(newDate);
     } catch (err) {
-      console.error("[ExamPrep] Failed to save exam date:", err);
+      console.error("[ExamPrep-SYNC] Save failed:", err);
     }
   };
 
@@ -94,7 +86,7 @@ export const ExamPrep: React.FC = () => {
       <div className="ep-root flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
           <div className="spinner mx-auto mb-4" />
-          <p className="text-gray-400">Analyzing your study history...</p>
+          <p className="text-gray-400">Analyzing study landscape...</p>
         </div>
       </div>
     );
@@ -142,10 +134,9 @@ export const ExamPrep: React.FC = () => {
       {!hasData && (
         <div className="ep-empty-state">
           <div className="ep-empty-icon">📋</div>
-          <h3 className="ep-empty-title">No challenge data yet</h3>
+          <h3 className="ep-empty-title">No evidence found</h3>
           <p className="ep-empty-body">
-            Complete at least one Reasoning Challenge to see your
-            topic coverage, predicted weak areas, and exam readiness score.
+            Take a Reasoning Challenge to ground your readiness score in real performance data.
           </p>
         </div>
       )}

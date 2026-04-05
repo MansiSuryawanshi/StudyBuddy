@@ -50,11 +50,9 @@ export interface StudyDocument {
  * Saves a new study document to Firebase Firestore.
  */
 export async function saveDocument(fileName: string, rawText: string): Promise<string> {
-  console.log(`[Firebase] upload started: ${fileName}`);
-  console.log(`[Firebase] text extracted. length: ${rawText.length} characters.`);
-  
+  const path = `users/${USER_ID}/documents`;
+  console.group(`[Firebase-WRITE] ${path}`);
   try {
-    console.log(`[Firebase] save started for User: ${USER_ID}`);
     const userDocsRef = collection(db, "users", USER_ID, "documents");
     const newDoc = {
       fileName,
@@ -65,15 +63,15 @@ export async function saveDocument(fileName: string, rawText: string): Promise<s
     };
     
     const docRef = await addDoc(userDocsRef, newDoc);
-    console.log(`[Firebase] save success! document id: ${docRef.id}`);
+    console.log(`Success. DocID: ${docRef.id} | Size: ${rawText.length} chars`);
     
     // Set this doc as the active one for the user
     await setDoc(doc(db, "users", USER_ID), { activeDocumentId: docRef.id }, { merge: true });
-    console.log(`[Firebase] activeDocumentId updated to: ${docRef.id}`);
-    
+    console.groupEnd();
     return docRef.id;
   } catch (error: any) {
-    console.error(`[Firebase] upload failed. reason: ${error.message || error}`);
+    console.error(`Upload failed: ${error.message || error}`);
+    console.groupEnd();
     throw error;
   }
 }
@@ -82,15 +80,18 @@ export async function saveDocument(fileName: string, rawText: string): Promise<s
  * Fetches the currently active document ID for the user.
  */
 export async function getActiveDocumentId(): Promise<string | null> {
+  const path = `users/${USER_ID} (activeDocumentId)`;
+  console.group(`[Firebase-READ] ${path}`);
   try {
     const userRef = doc(db, "users", USER_ID);
     const userSnap = await getDoc(userRef);
-    if (userSnap.exists()) {
-      return userSnap.data().activeDocumentId || null;
-    }
-    return null;
+    const result = userSnap.exists() ? (userSnap.data().activeDocumentId || null) : null;
+    console.log(`Result: ${result}`);
+    console.groupEnd();
+    return result;
   } catch (error) {
-    console.error("[Firebase] Error fetching active doc ID: ", error);
+    console.error("Fetch failed:", error);
+    console.groupEnd();
     return null;
   }
 }
@@ -99,16 +100,23 @@ export async function getActiveDocumentId(): Promise<string | null> {
  * Retrieves the full study document based on its ID.
  */
 export async function getDocumentById(docId: string): Promise<StudyDocument | null> {
+  const path = `users/${USER_ID}/documents/${docId}`;
+  console.group(`[Firebase-READ] ${path}`);
   try {
     const docRef = doc(db, "users", USER_ID, "documents", docId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
-      const data = docSnap.data();
-      return { id: docSnap.id, ...data } as StudyDocument;
+      const result = { id: docSnap.id, ...docSnap.data() } as StudyDocument;
+      console.log(`Success: ${result.fileName}`);
+      console.groupEnd();
+      return result;
     }
+    console.log("Not found.");
+    console.groupEnd();
     return null;
   } catch (error) {
-    console.error(`[Firebase] Error fetching document ${docId}: `, error);
+    console.error("Fetch failed:", error);
+    console.groupEnd();
     return null;
   }
 }
@@ -117,12 +125,16 @@ export async function getDocumentById(docId: string): Promise<StudyDocument | nu
  * Saves the user's target exam date to Firestore.
  */
 export async function saveExamDate(dateStr: string): Promise<void> {
+  const path = `users/${USER_ID} (examDate)`;
+  console.group(`[Firebase-WRITE] ${path}`);
   try {
     const userRef = doc(db, "users", USER_ID);
     await setDoc(userRef, { examDate: dateStr }, { merge: true });
-    console.log(`[Firebase] Exam date saved: ${dateStr}`);
+    console.log(`Saved: ${dateStr}`);
+    console.groupEnd();
   } catch (error) {
-    console.error("[Firebase] Error saving exam date: ", error);
+    console.error("Save failed:", error);
+    console.groupEnd();
     throw error;
   }
 }
@@ -131,15 +143,18 @@ export async function saveExamDate(dateStr: string): Promise<void> {
  * Fetches the user's target exam date from Firestore.
  */
 export async function getExamDate(): Promise<string | null> {
+  const path = `users/${USER_ID} (examDate)`;
+  console.group(`[Firebase-READ] ${path}`);
   try {
     const userRef = doc(db, "users", USER_ID);
     const userSnap = await getDoc(userRef);
-    if (userSnap.exists()) {
-      return userSnap.data().examDate || null;
-    }
-    return null;
+    const result = userSnap.exists() ? (userSnap.data().examDate || null) : null;
+    console.log(`Result: ${result}`);
+    console.groupEnd();
+    return result;
   } catch (error) {
-    console.error("[Firebase] Error fetching exam date: ", error);
+    console.error("Fetch failed:", error);
+    console.groupEnd();
     return null;
   }
 }
@@ -148,13 +163,19 @@ export async function getExamDate(): Promise<string | null> {
  * Lists all documents for the current user, ordered by upload time.
  */
 export async function listUserDocuments(): Promise<StudyDocument[]> {
+  const path = `users/${USER_ID}/documents`;
+  console.group(`[Firebase-READ] ${path}`);
   try {
     const userDocsRef = collection(db, "users", USER_ID, "documents");
     const q = query(userDocsRef, orderBy("uploadedAt", "desc"));
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(d => ({ id: d.id, ...d.data() } as StudyDocument));
+    console.log(`Documents Loaded: ${querySnapshot.docs.length}`);
+    const results = querySnapshot.docs.map(d => ({ id: d.id, ...d.data() } as StudyDocument));
+    console.groupEnd();
+    return results;
   } catch (error) {
-    console.error("[Firebase] Error listing documents: ", error);
+    console.error("List failed:", error);
+    console.groupEnd();
     return [];
   }
 }
@@ -163,20 +184,21 @@ export async function listUserDocuments(): Promise<StudyDocument[]> {
  * Saves a completed quiz attempt to Firebase Firestore.
  */
 export async function saveQuizAttempt(attempt: Omit<QuizAttempt, "id">): Promise<string | null> {
-  console.group("[Firebase] Save Quiz Attempt");
+  const path = `users/${USER_ID}/quizAttempts`;
+  console.group(`[Firebase-WRITE] ${path}`);
   try {
-    const path = `users/${USER_ID}/quizAttempts`;
-    console.log(`Target Path: ${path}`);
     const attemptsRef = collection(db, "users", USER_ID, "quizAttempts");
-    const docRef = await addDoc(attemptsRef, {
+    const payload = {
       ...attempt,
       createdAt: Timestamp.now()
-    });
-    console.log(`Save Successful. DocID: ${docRef.id}`);
+    };
+    console.log("Payload:", payload);
+    const docRef = await addDoc(attemptsRef, payload);
+    console.log(`Success. DocID: ${docRef.id}`);
     console.groupEnd();
     return docRef.id;
   } catch (error) {
-    console.error(`Save Failed:`, error);
+    console.error("Save Failed:", error);
     console.groupEnd();
     return null;
   }
@@ -186,25 +208,19 @@ export async function saveQuizAttempt(attempt: Omit<QuizAttempt, "id">): Promise
  * Retrieves all quiz attempts for the current user.
  */
 export async function getUserQuizAttempts(): Promise<QuizAttempt[]> {
-  console.group("[Firebase] Fetch Quiz Attempts");
+  const path = `users/${USER_ID}/quizAttempts`;
+  console.group(`[Firebase-READ] ${path}`);
   try {
-    const path = `users/${USER_ID}/quizAttempts`;
-    console.log(`Querying: ${path}`);
     const attemptsRef = collection(db, "users", USER_ID, "quizAttempts");
     const q = query(attemptsRef, orderBy("createdAt", "desc"));
     const querySnapshot = await getDocs(q);
     
-    if (querySnapshot.empty) {
-      console.log(`Result: Collection ${path} found but it is EMPTY.`);
-    } else {
-      console.log(`Result: Found ${querySnapshot.docs.length} attempts at ${path}.`);
-    }
-    
+    console.log(`Documents Loaded: ${querySnapshot.docs.length}`);
     const results = querySnapshot.docs.map(d => ({ id: d.id, ...d.data() } as QuizAttempt));
     console.groupEnd();
     return results;
   } catch (error: any) {
-    console.error(`Fetch Failed at ${`users/${USER_ID}/quizAttempts`}. Reason:`, error.message || error);
+    console.error(`Fetch Failed. Reason:`, error.message || error);
     console.groupEnd();
     return [];
   }

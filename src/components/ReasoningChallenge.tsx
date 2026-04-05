@@ -17,7 +17,7 @@ import { evaluateShortAnswer } from '../services/claudeService';
 import { useStore } from '../store/store';
 import QuizQuestion from './QuizQuestion';
 import { Trash2, Trash } from 'lucide-react';
-import type { ChallengeSession, Participant, QuizAttempt } from '../types';
+import type { ChallengeSession, QuizAttempt } from '../types';
 
 type QuizPhase = 
   | 'selection' 
@@ -46,6 +46,7 @@ interface QuestionResult {
 }
 
 const ReasoningChallenge: React.FC = () => {
+  const allAttempts = useStore((s) => s.allAttempts);
   const [phase, setPhase] = useState<QuizPhase>('selection');
   const [loadingStep, setLoadingStep] = useState<LoadingStep>('reading');
   const [documents, setDocuments] = useState<StudyDocument[]>([]);
@@ -381,10 +382,15 @@ const ReasoningChallenge: React.FC = () => {
       
       const attemptId = await saveQuizAttempt(attempt);
       setSavedAttemptId(attemptId);
-      console.log(`Firebase save SUCCESS. Attempt ID: ${attemptId}`);
+      
+      // GROUNDING: Update the global store immediately so other tabs react
+      const newAllAttempts = [{ id: attemptId || Date.now().toString(), ...attempt }, ...allAttempts];
+      useStore.getState().setAllAttempts(newAllAttempts);
+      
+      console.log(`[Challenge-SYNC] Firebase save SUCCESS. Store updated with ${newAllAttempts.length} total attempts.`);
       console.groupEnd();
     } catch (err) {
-      console.error(`[Challenge] Quiz result save FAILURE:`, err);
+      console.error(`[Challenge-SYNC] Quiz result save FAILURE:`, err);
       console.groupEnd();
     }
 
@@ -655,7 +661,7 @@ const ReasoningChallenge: React.FC = () => {
           <div className="absolute inset-0 rounded-full border-4 border-purple-500 border-t-transparent animate-spin" />
         </div>
         <p className="text-xl font-bold text-white transition-all">{loadingStep.toUpperCase()}...</p>
-        {loadingStep === 'grader' && <p className="text-gray-500 text-sm mt-4 italic">Claude AI is evaluating your explanation...</p>}
+        {loadingStep === 'grading' && <p className="text-gray-500 text-sm mt-4 italic">Claude AI is evaluating your explanation...</p>}
         {loadingStep === 'competitor' && <p className="text-gray-500 text-sm mt-4 italic">Waiting for other participants to finish...</p>}
       </div>
     );
@@ -682,7 +688,6 @@ const ReasoningChallenge: React.FC = () => {
   if (phase === 'results') {
     const leaderboard = getLeaderboard();
     const winner = leaderboard[0];
-    const finalResults = session ? (Object.values(session.participants).find(p => p.uid === USER_ID)?.results?.answers) : results;
 
     return (
       <div className="max-w-5xl mx-auto py-12 px-6 animate-slide-up">
@@ -777,7 +782,7 @@ const ReasoningChallenge: React.FC = () => {
 
         <div className="flex flex-col md:flex-row items-center justify-center gap-6">
           <button onClick={() => window.location.href = '/'} className="btn-outline px-12 py-5 rounded-2xl font-black text-lg w-full md:w-auto">Return Home</button>
-          <button onClick={() => { setPhase('selection'); setSelectedDocIds(new Set()); setResults([]); setQuiz(null); setSavedAttemptId(null); }} className="btn-premium px-12 py-5 rounded-2xl font-black text-lg shadow-2xl shadow-purple-500/30 w-full md:w-auto">New Challenge →</button>
+          <button onClick={() => { setPhase('selection'); setSelectedDocIds(new Set()); setResults([]); setQuiz([]); setSavedAttemptId(null); }} className="btn-premium px-12 py-5 rounded-2xl font-black text-xl shadow-2xl shadow-purple-500/30 w-full md:w-auto">New Challenge →</button>
         </div>
       </div>
     );

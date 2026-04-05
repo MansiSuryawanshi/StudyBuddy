@@ -13,8 +13,9 @@ import {
   Activity
 } from 'lucide-react';
 import type { QuizAttempt } from '../types';
-import { getUserQuizAttempts, USER_ID } from '../services/firebaseService';
+import { USER_ID } from '../services/firebaseService';
 import { generateReport } from '../services/claudeService';
+import { useStore } from '../store/store';
 
 // ── TYPES ───────────────────────────────────────────────────────────────────
 
@@ -197,26 +198,24 @@ const QuizAttemptCard: React.FC<{ attempt: QuizAttempt }> = ({ attempt }) => {
 // ── MAIN DASHBOARD ─────────────────────────────────────────────────────────
 
 export const StudyReport: React.FC = () => {
-  const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Global Store
+  const attempts = useStore((s) => s.allAttempts);
+  const isInitialLoadComplete = useStore((s) => s.isInitialLoadComplete);
+
+  const [isLoading, setIsLoading] = useState(!isInitialLoadComplete);
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (isInitialLoadComplete) {
+      setIsLoading(false);
+      console.log(`[StudyReport-SYNC] Dashboard grounded in ${attempts.length} attempts.`);
+    }
+  }, [isInitialLoadComplete, attempts.length]);
 
   const loadData = async () => {
-    setIsLoading(true);
-    try {
-      const data = await getUserQuizAttempts();
-      console.log(`[StudyReport] Loaded quiz attempt count: ${data.length}`);
-      setAttempts(data);
-    } catch (err) {
-      console.error("[StudyReport] Data load failed:", err);
-    } finally {
-      setIsLoading(false);
-    }
+     // Re-trigger global sync if needed, but the loader handles it.
+     console.log("[StudyReport] Refreshing stats via global state...");
   };
 
   const metrics = useMemo((): DashboardMetrics | null => {

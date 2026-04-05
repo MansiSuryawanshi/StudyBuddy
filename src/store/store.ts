@@ -7,12 +7,19 @@ import type {
   CrossExamRecord,
   TopicProgress,
   QuizAnswer,
+  QuizAttempt,
 } from '../types';
 
 export interface SessionState {
   session: Session | null;
   schedule: ScheduleResponse | null;
   currentQuiz: GeneratedQuestion[] | null;
+
+  // Global Data Context (Central Source of Truth)
+  examDate: string | null;
+  daysLeft: number | null;
+  allAttempts: QuizAttempt[];
+  isInitialLoadComplete: boolean;
 
   // Exam Prep (Developer 3)
   readinessScore: number;
@@ -24,7 +31,12 @@ export interface SessionState {
   setSession: (session: Session) => void;
   setQuiz: (quiz: GeneratedQuestion[]) => void;
   updatePhase: (phase: SessionPhase) => void;
-  setSchedule: (schedule: ScheduleResponse) => void;
+  setSchedule: (schedule: ScheduleResponse | null) => void;
+
+  setExamDate: (date: string | null) => void;
+  setDaysLeft: (days: number | null) => void;
+  setAllAttempts: (attempts: QuizAttempt[]) => void;
+  setInitialLoadComplete: (status: boolean) => void;
 
   // Exam Prep actions
   adjustReadinessScore: (delta: number) => void;
@@ -41,6 +53,11 @@ export const useStore = create<SessionState>((set) => ({
   schedule: null,
   currentQuiz: null,
 
+  examDate: null,
+  daysLeft: null,
+  allAttempts: [],
+  isInitialLoadComplete: false,
+
   readinessScore: 50,
   weakAreas: [],
   topicProgress: [],
@@ -54,6 +71,11 @@ export const useStore = create<SessionState>((set) => ({
       session: state.session ? { ...state.session, phase } : null,
     })),
   setSchedule: (schedule) => set({ schedule }),
+
+  setExamDate: (examDate) => set({ examDate }),
+  setDaysLeft: (daysLeft) => set({ daysLeft }),
+  setAllAttempts: (allAttempts) => set({ allAttempts }),
+  setInitialLoadComplete: (isInitialLoadComplete) => set({ isInitialLoadComplete }),
 
   adjustReadinessScore: (delta: number) =>
     set((state: SessionState) => ({

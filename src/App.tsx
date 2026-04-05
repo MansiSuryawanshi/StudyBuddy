@@ -12,6 +12,7 @@ import { ExamPrep } from './components/ExamPrep';
 import { useStore } from './store/store';
 import UploadMaterial from './components/UploadMaterial';
 import { saveDocument } from './services/firebaseService';
+import { InitialDataLoader } from './components/InitialDataLoader';
 import './index.css';
 
 const DEMO_SESSION = {
@@ -73,6 +74,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#070714] text-white selection:bg-purple-500/30 selection:text-white">
+      <InitialDataLoader />
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
       <main>
         {activeTab === 0 && (
