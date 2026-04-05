@@ -1,66 +1,84 @@
-/**
- * ExamPrep tab – Exam Readiness page.
- * Data is derived from real quiz answers recorded in the store during the Challenge.
- */
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ReadinessScore } from './ReadinessScore';
 import { TopicCoverage } from './TopicCoverage';
 import { WeakAreas } from './WeakAreas';
 import { CrossExamination } from './CrossExamination';
 import { useStore } from '../store/store';
-import type { TopicProgress, QuizAnswer } from '../types';
-
-/** Compute topic progress bars from raw quiz answers. */
-function computeTopicProgress(answers: QuizAnswer[]): TopicProgress[] {
-  const map = new Map<string, { correct: number; total: number }>();
-
-  for (const a of answers) {
-    const topic = a.sourceTopic || 'General';
-    const entry = map.get(topic) ?? { correct: 0, total: 0 };
-    entry.total += 1;
-    // null (ungraded short-answer) counts as 50%
-    if (a.isCorrect === true) entry.correct += 1;
-    else if (a.isCorrect === null) entry.correct += 0.5;
-    map.set(topic, entry);
-  }
-
-  return Array.from(map.entries()).map(([name, { correct, total }]) => ({
-    name,
-    percentage: Math.round((correct / total) * 100),
-  }));
-}
-
-/** Topics below 60% become predicted weak areas. */
-function computeWeakAreas(topics: TopicProgress[]): string[] {
-  return topics.filter((t) => t.percentage < 60).map((t) => t.name);
-}
-
-/** Overall readiness = average topic percentage (clamped). */
-function computeReadiness(topics: TopicProgress[]): number {
-  if (topics.length === 0) return 50;
-  const avg = topics.reduce((s, t) => s + t.percentage, 0) / topics.length;
-  return Math.max(0, Math.min(100, Math.round(avg)));
-}
+import { getUserQuizAttempts, getExamDate, saveExamDate } from '../services/firebaseService';
+import { deriveStudentAnalytics, mapStatsToProgress } from '../services/analyticsService';
 
 export const ExamPrep: React.FC = () => {
-  const quizAnswers      = useStore((s) => s.quizAnswers);
   const readinessScore   = useStore((s) => s.readinessScore);
   const setTopicProgress = useStore((s) => s.setTopicProgress);
   const setWeakAreas     = useStore((s) => s.setWeakAreas);
   const setReadinessScore = useStore((s) => s.setReadinessScore);
 
-  // Re-derive all Exam Prep data whenever quiz answers change.
-  useEffect(() => {
-    const topics = computeTopicProgress(quizAnswers);
-    const weak   = computeWeakAreas(topics);
-    setTopicProgress(topics);
-    setWeakAreas(weak);
-    if (quizAnswers.length > 0) {
-      setReadinessScore(computeReadiness(topics));
-    }
-  }, [quizAnswers, setTopicProgress, setWeakAreas, setReadinessScore]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasData, setHasData] = useState(false);
+  const [examDate, setExamDateState] = useState<string | null>(null);
+  const [daysLeft, setDaysLeft] = useState<number | null>(null);
+  const [isEditingDate, setIsEditingDate] = useState(false);
 
-  const daysToExam = 12;
+  /** Standard calculation for the countdown. */
+  const calculateDaysLeft = (targetDate: string) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const target = new Date(targetDate);
+    target.setHours(0, 0, 0, 0);
+
+    const diffTime = target.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    console.log(`[ExamPrep] Countdown: ${diffDays} days left until ${targetDate}`);
+    return diffDays;
+  };
+
+  // Re-derive all Exam Prep data from real Firebase history.
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true);
+      try {
+        const attempts = await getUserQuizAttempts();
+        
+        // 2. Load Exam Date
+        const savedDate = await getExamDate();
+        let currentDaysLeft: number | null = null;
+        if (savedDate) {
+          const dl = calculateDaysLeft(savedDate);
+          setExamDateState(savedDate);
+          setDaysLeft(dl);
+          currentDaysLeft = dl;
+          console.log(`[ExamPrep] Persistent exam date loaded: ${savedDate}. Days left: ${dl}`);
+        }
+
+        const analytics = deriveStudentAnalytics(attempts, currentDaysLeft);
+        setTopicProgress(mapStatsToProgress(analytics.topicStats));
+        setWeakAreas(analytics.weakTopics);
+        setReadinessScore(analytics.readinessScore);
+        setHasData(attempts.length > 0);
+      } catch (err) {
+        console.error("[ExamPrep] Data loading failed:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadData();
+  }, [setTopicProgress, setWeakAreas, setReadinessScore]);
+
+  const handleDateChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newDate = e.target.value;
+    if (!newDate) return;
+
+    setExamDateState(newDate);
+    setDaysLeft(calculateDaysLeft(newDate));
+    setIsEditingDate(false);
+    
+    try {
+      await saveExamDate(newDate);
+    } catch (err) {
+      console.error("[ExamPrep] Failed to save exam date:", err);
+    }
+  };
 
   const getReadinessPill = (score: number) => {
     if (score >= 75) return { label: 'Ready!',        cls: 'ep-pill-green' };
@@ -69,7 +87,18 @@ export const ExamPrep: React.FC = () => {
   };
 
   const pill = getReadinessPill(readinessScore);
-  const hasData = quizAnswers.length > 0;
+
+  // ── Loading state ──
+  if (isLoading) {
+    return (
+      <div className="ep-root flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <div className="spinner mx-auto mb-4" />
+          <p className="text-gray-400">Analyzing your study history...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="ep-root">
@@ -77,12 +106,33 @@ export const ExamPrep: React.FC = () => {
       <div className="ep-header">
         <div className="ep-header-left">
           <h1 className="ep-title">Exam Readiness</h1>
-          <p className="ep-subtitle">Track your preparation and close knowledge gaps</p>
+          <p className="ep-subtitle">
+            {daysLeft !== null && daysLeft <= 7 
+              ? "🕒 Critical window: Focus on highest impact topics." 
+              : "Track your preparation and close knowledge gaps"}
+          </p>
         </div>
         <div className="ep-header-right">
-          <div className="ep-days-box">
-            <span className="ep-days-number">{daysToExam}</span>
-            <span className="ep-days-label">days to exam</span>
+          <div className="ep-days-box" onClick={() => setIsEditingDate(true)} style={{ cursor: 'pointer' }}>
+            {isEditingDate ? (
+              <input 
+                type="date" 
+                className="ep-date-input"
+                autoFocus
+                onChange={handleDateChange}
+                onBlur={() => setIsEditingDate(false)}
+                defaultValue={examDate || ''}
+              />
+            ) : (
+              <>
+                <span className="ep-days-number">
+                  {daysLeft === null ? '--' : daysLeft < 0 ? 'Passed' : daysLeft === 0 ? 'Today' : daysLeft}
+                </span>
+                <span className="ep-days-label">
+                  {daysLeft === null ? 'set date' : daysLeft < 0 ? 'exam date' : daysLeft === 0 ? 'is exam' : 'days left'}
+                </span>
+              </>
+            )}
           </div>
           <span className={`ep-readiness-pill ${pill.cls}`}>{pill.label}</span>
         </div>
@@ -94,7 +144,7 @@ export const ExamPrep: React.FC = () => {
           <div className="ep-empty-icon">📋</div>
           <h3 className="ep-empty-title">No challenge data yet</h3>
           <p className="ep-empty-body">
-            Complete at least one question in the <strong>Challenge</strong> tab to see your
+            Complete at least one Reasoning Challenge to see your
             topic coverage, predicted weak areas, and exam readiness score.
           </p>
         </div>

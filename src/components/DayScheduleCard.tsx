@@ -36,9 +36,10 @@ export const DayScheduleCard: React.FC<DayScheduleCardProps> = ({ day }) => {
               key={i}
               time={session.time}
               label={session.label}
-              topicTag={session.targets_gap ?? session.topic_tag}
+              topicTag={session.topic_tag}
               duration={session.duration}
               badgeType={session.badge_type}
+              rationale={session.rationale}
               isLast={i === day.sessions.length - 1}
             />
           ))}

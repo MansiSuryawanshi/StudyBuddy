@@ -25,11 +25,12 @@ function getPersistentUserId(): string {
   const key = "studybuddy_user_id";
   let id = localStorage.getItem(key);
   if (!id) {
-    id = "guest_" + Math.random().toString(36).substring(2, 10);
+    // Defaulting to "guest_user" to match environment shown in console
+    id = "guest_user";
     localStorage.setItem(key, id);
-    console.log(`[Firebase] New persistent User ID generated: ${id}`);
+    console.log(`[Firebase] User ID initialized to: ${id}`);
   } else {
-    console.log(`[Firebase] Existing persistent User ID loaded: ${id}`);
+    console.log(`[Firebase] Existing User ID loaded: ${id}`);
   }
   return id;
 }
@@ -113,6 +114,37 @@ export async function getDocumentById(docId: string): Promise<StudyDocument | nu
 }
 
 /**
+ * Saves the user's target exam date to Firestore.
+ */
+export async function saveExamDate(dateStr: string): Promise<void> {
+  try {
+    const userRef = doc(db, "users", USER_ID);
+    await setDoc(userRef, { examDate: dateStr }, { merge: true });
+    console.log(`[Firebase] Exam date saved: ${dateStr}`);
+  } catch (error) {
+    console.error("[Firebase] Error saving exam date: ", error);
+    throw error;
+  }
+}
+
+/**
+ * Fetches the user's target exam date from Firestore.
+ */
+export async function getExamDate(): Promise<string | null> {
+  try {
+    const userRef = doc(db, "users", USER_ID);
+    const userSnap = await getDoc(userRef);
+    if (userSnap.exists()) {
+      return userSnap.data().examDate || null;
+    }
+    return null;
+  } catch (error) {
+    console.error("[Firebase] Error fetching exam date: ", error);
+    return null;
+  }
+}
+
+/**
  * Lists all documents for the current user, ordered by upload time.
  */
 export async function listUserDocuments(): Promise<StudyDocument[]> {
@@ -131,15 +163,21 @@ export async function listUserDocuments(): Promise<StudyDocument[]> {
  * Saves a completed quiz attempt to Firebase Firestore.
  */
 export async function saveQuizAttempt(attempt: Omit<QuizAttempt, "id">): Promise<string | null> {
+  console.group("[Firebase] Save Quiz Attempt");
   try {
+    const path = `users/${USER_ID}/quizAttempts`;
+    console.log(`Target Path: ${path}`);
     const attemptsRef = collection(db, "users", USER_ID, "quizAttempts");
     const docRef = await addDoc(attemptsRef, {
       ...attempt,
       createdAt: Timestamp.now()
     });
+    console.log(`Save Successful. DocID: ${docRef.id}`);
+    console.groupEnd();
     return docRef.id;
   } catch (error) {
-    console.error("[Firebase] Error saving quiz attempt: ", error);
+    console.error(`Save Failed:`, error);
+    console.groupEnd();
     return null;
   }
 }
@@ -148,14 +186,50 @@ export async function saveQuizAttempt(attempt: Omit<QuizAttempt, "id">): Promise
  * Retrieves all quiz attempts for the current user.
  */
 export async function getUserQuizAttempts(): Promise<QuizAttempt[]> {
+  console.group("[Firebase] Fetch Quiz Attempts");
   try {
+    const path = `users/${USER_ID}/quizAttempts`;
+    console.log(`Querying: ${path}`);
     const attemptsRef = collection(db, "users", USER_ID, "quizAttempts");
     const q = query(attemptsRef, orderBy("createdAt", "desc"));
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(d => ({ id: d.id, ...d.data() } as QuizAttempt));
-  } catch (error) {
-    console.error("[Firebase] Error fetching quiz attempts: ", error);
+    
+    if (querySnapshot.empty) {
+      console.log(`Result: Collection ${path} found but it is EMPTY.`);
+    } else {
+      console.log(`Result: Found ${querySnapshot.docs.length} attempts at ${path}.`);
+    }
+    
+    const results = querySnapshot.docs.map(d => ({ id: d.id, ...d.data() } as QuizAttempt));
+    console.groupEnd();
+    return results;
+  } catch (error: any) {
+    console.error(`Fetch Failed at ${`users/${USER_ID}/quizAttempts`}. Reason:`, error.message || error);
+    console.groupEnd();
     return [];
+  }
+}
+
+/**
+ * Saves a Socratic Cross-Examination defense to Firebase.
+ */
+export async function saveCrossExamAttempt(attempt: any): Promise<string | null> {
+  console.group("[Firebase] Save Cross-Exam Defense");
+  try {
+    const path = `users/${USER_ID}/crossExams`;
+    console.log(`Target Path: ${path}`);
+    const attemptsRef = collection(db, "users", USER_ID, "crossExams");
+    const docRef = await addDoc(attemptsRef, {
+      ...attempt,
+      createdAt: Timestamp.now()
+    });
+    console.log(`Save Successful. DocID: ${docRef.id}`);
+    console.groupEnd();
+    return docRef.id;
+  } catch (error) {
+    console.error(`Save Failed for ${`users/${USER_ID}/crossExams`}:`, error);
+    console.groupEnd();
+    return null;
   }
 }
 

@@ -64,6 +64,7 @@ export interface SessionSlotData {
   duration: string;
   badge_type: BadgeType;
   targets_gap: string | null;
+  rationale?: string | null;
 }
 
 export interface DaySchedule {
@@ -89,11 +90,13 @@ export interface QuizAttempt {
   questionResults: {
     questionId: string;
     questionText: string;
+    type: QuestionType;
     userAnswer: string;
     correctAnswer: string;
     isCorrect: boolean;
-    explanation?: string;
-    topic?: string;
+    explanation?: string | null;
+    feedback?: string | null;
+    topic?: string | null;
   }[];
   weakTopics: string[];
   strongTopics: string[];

@@ -77,6 +77,65 @@ export async function scoreAnswers(
   return JSON.parse(extractJson(data.content[0].text)) as ScoreResult;
 }
 
+/**
+ * Evaluates a descriptive (short answer) question semantically.
+ * Returns whether the answer is correct and provides feedback.
+ */
+export async function evaluateShortAnswer(
+  question: string,
+  userAnswer: string,
+  expectedAnswer: string,
+  explanation?: string
+): Promise<{ isCorrect: boolean; feedback: string }> {
+  // 1. Simple normalization for minimal variation
+  const normUser = userAnswer.trim().toLowerCase();
+  const normExpected = expectedAnswer.trim().toLowerCase();
+  
+  if (normUser === normExpected) {
+    return { isCorrect: true, feedback: "Exact match!" };
+  }
+
+  // 2. Perform semantic evaluation with Claude
+  const prompt = `You are an educational grader. 
+Question: "${question}"
+User's Answer: "${userAnswer}"
+Correct/Expected Answer: "${expectedAnswer}"
+Reference Explanation: "${explanation || 'N/A'}"
+
+Evaluate if the user's answer is semantically correct and covers the core concepts, even if worded differently.
+Respond ONLY with a JSON object: 
+{"isCorrect": true/false, "feedback": "one short sentence explaining why"}
+
+Strictness: If the answer is factually correct but uses synonyms or phrasing changes, mark it TRUE. If it misses the core point or is factually wrong, mark it FALSE.`;
+
+  console.log(`[Claude] Descriptive answer evaluation started...`);
+  try {
+    const response = await fetch(CLAUDE_URL, {
+      method: 'POST',
+      headers: buildHeaders(),
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 400,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!response.ok) throw new Error("API call failed");
+
+    const data = await response.json() as { content: { text: string }[] };
+    const result = JSON.parse(extractJson(data.content[0].text)) as { isCorrect: boolean; feedback: string };
+    console.log(`[Claude] Evaluation result: ${result.isCorrect ? 'CORRECT' : 'INCORRECT'}`);
+    return result;
+  } catch (error) {
+    console.error("[Claude] Semantic evaluation failed. Falling back to fuzzy matching.", error);
+    // Rough fallback: if user answer contains most of the expected answer words
+    const points = expectedAnswer.toLowerCase().split(' ').filter(w => w.length > 3);
+    const matches = points.filter(p => normUser.includes(p));
+    const isCorrect = matches.length >= Math.ceil(points.length * 0.6);
+    return { isCorrect, feedback: isCorrect ? "Fuzzy match success." : "Does not match core requirements." };
+  }
+}
+
 // ── generateFollowUp ─────────────────────────────────────────────────────────
 export const generateFollowUp = async (
   question: string,
@@ -139,18 +198,24 @@ export const generateSchedule = async (
 
   const prompt = `You are an adaptive learning coach for college students.
 
-The student has these concept gaps identified from recent quiz sessions:
+The student has these concept gaps identified from real historical quiz sessions:
 Gaps (sorted weakest first): ${JSON.stringify(gaps)}
 Average understanding score: ${avgScore}/100
 Days until exam: ${daysToExam}${topicContext}
+
+ADAPTIVE STRATEGY BASED ON DAYS LEFT (${daysToExam}):
+- 0-3 days (URGENT): "Sprint Mode". Focus ONLY on the most critical weak areas. Shorter, high-intensity sessions. Rationale should mention "Critical window".
+- 4-10 days (TIGHT): "Gap Closure Mode". Heavy focus on weak areas, but include 1-2 review sessions for strong topics.
+- 11+ days (BALANCED): "Mastery Mode". Evenly spread sessions, deep dives into complex topics, and spaced repetition.
 
 IMPORTANT RULES:
 - Topics with lower accuracy MUST get more sessions and longer durations (e.g. 60 min instead of 30 min)
 - The weakest topic should appear in every day's schedule
 - Use badge_type "coral" for gap topics, "purple" for challenge/practice, "teal" for review
+- For EACH session, provide a "rationale" field explaining why it was scheduled (e.g. "Urgency: High. Targeting core misconception in Recursion").
 
 Generate a 3-day study schedule. Return ONLY a raw JSON object, no markdown, no backticks, no explanation:
-{"schedule":[{"day":"Today · Monday","sessions":[{"time":"9:00 am","label":"session name","topic_tag":"gap focus","duration":"45 min","badge_type":"coral","targets_gap":"gap name or null"}]}],"priority_gap":"most urgent gap","readiness_message":"one sentence"}`;
+{"schedule":[{"day":"Today · Monday","sessions":[{"time":"9:00 am","label":"session name","topic_tag":"gap focus","duration":"45 min","badge_type":"coral","targets_gap":"gap name or null","rationale":"short evidence string"}]}],"priority_gap":"most urgent gap","readiness_message":"one sentence"}`;
 
   if (!apiKey) return buildMockSchedule(gaps);
 

@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { ScheduleResponse } from '../types';
 import { useStore } from '../store/store';
 import { generateSchedule } from '../services/claudeService';
-import { getUserQuizAttempts } from '../services/firebaseService';
+import { getUserQuizAttempts, getExamDate } from '../services/firebaseService';
 import { MetricsRow } from './MetricsRow';
 import { DayScheduleCard } from './DayScheduleCard';
 
@@ -28,14 +28,26 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
   const [topicAccuracy, setTopicAccuracy] = useState<{ topic: string; accuracy: number }[]>([]);
   const [avgScore, setAvgScore] = useState(0);
   const [challengesDone, setChallengesDone] = useState(0);
+  const [daysLeft, setDaysLeft] = useState<number | null>(null);
 
   const prevGapCount = useRef(0);
 
-  // Load latest quiz attempt from Firebase on mount
+  /** Calculate days left from date string */
+  const calculateDaysLeft = (dateStr: string) => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const target = new Date(dateStr);
+    target.setHours(0,0,0,0);
+    const diff = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return diff;
+  };
+
+  // Load latest quiz attempt and exam date from Firebase on mount
   useEffect(() => {
     const loadAttempts = async () => {
       setLoadingAttempts(true);
       try {
+        // 1. Fetch History
         const attempts = await getUserQuizAttempts(); // ordered by createdAt desc
         setChallengesDone(attempts.length);
 
@@ -44,9 +56,18 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
           return;
         }
 
-        const latest = attempts[0];
+        // 2. Fetch Exam Date
+        const dateStr = await getExamDate();
+        let currentDaysLeft = 7; // fallback
+        if (dateStr) {
+          currentDaysLeft = calculateDaysLeft(dateStr);
+          setDaysLeft(currentDaysLeft);
+          console.log(`[StudySchedule] Persistent exam date loaded: ${dateStr}. Days left: ${currentDaysLeft}`);
+        } else {
+          console.log("[StudySchedule] No exam date found. Using default 7 days.");
+        }
 
-        // Build per-topic accuracy from weakTopics / strongTopics
+        const latest = attempts[0];
         const weakSet = new Set(latest.weakTopics);
         const strongSet = new Set(latest.strongTopics);
         const allTopics = [...new Set([...latest.weakTopics, ...latest.strongTopics])];
@@ -59,7 +80,6 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
           return { topic, accuracy: 50 }; // appears in both
         });
 
-        // Sort weakest first
         accuracy.sort((a, b) => a.accuracy - b.accuracy);
         setTopicAccuracy(accuracy);
 
@@ -69,7 +89,7 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
 
         // Auto-generate schedule if none cached
         if (cachedSchedule === null && gaps.length > 0) {
-          void fetchScheduleWith(gaps, latest.accuracy, accuracy);
+          void fetchScheduleWith(gaps, latest.accuracy, accuracy, currentDaysLeft);
         }
 
         if (gaps.length > prevGapCount.current && localSchedule !== null) {
@@ -90,12 +110,14 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
     gaps: string[],
     score: number,
     accuracy: { topic: string; accuracy: number }[],
+    daysToExam: number = daysLeft ?? 7
   ) => {
     setLoading(true);
     setError(null);
     setNewGapsNudge(false);
     try {
-      const result = await generateSchedule(gaps, score, 7, accuracy);
+      console.log(`[StudySchedule] Requesting adaptive schedule for ${daysToExam} days left.`);
+      const result = await generateSchedule(gaps, score, daysToExam, accuracy);
       setLocalSchedule(result);
       setSchedule(result);
     } catch (err) {
@@ -105,7 +127,7 @@ export const StudySchedule: React.FC<StudyScheduleProps> = ({ onSwitchToChalleng
     }
   };
 
-  const fetchSchedule = () => fetchScheduleWith(conceptGaps, avgScore, topicAccuracy);
+  const fetchSchedule = () => fetchScheduleWith(conceptGaps, avgScore, topicAccuracy, daysLeft ?? 7);
 
   const totalSessions =
     localSchedule?.schedule.reduce((sum, day) => sum + day.sessions.length, 0) ?? 0;

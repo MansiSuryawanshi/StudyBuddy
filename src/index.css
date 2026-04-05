@@ -180,6 +180,28 @@ body {
   margin-top: 2px;
 }
 
+.ep-days-box:hover {
+  border-color: rgba(168,85,247,0.6);
+  background: rgba(168,85,247,0.25);
+}
+
+.ep-date-input {
+  background: transparent;
+  border: none;
+  color: #c084fc;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  width: 110px;
+  text-align: center;
+  outline: none;
+  cursor: pointer;
+}
+
+.ep-date-input::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.5;
+}
+
 /* Readiness pill */
 .ep-readiness-pill {
   font-size: 0.8125rem;

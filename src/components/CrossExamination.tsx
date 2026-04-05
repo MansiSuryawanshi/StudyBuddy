@@ -7,93 +7,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store/store';
 import { generateFollowUp, evaluateDefense } from '../services/claudeService';
+import { saveCrossExamAttempt, USER_ID, getUserQuizAttempts } from '../services/firebaseService';
+import { deriveStudentAnalytics } from '../services/analyticsService';
+import type { MistakeDetail } from '../services/analyticsService';
 import type { FollowUpResult, DefenseEvaluation } from '../types';
 
 const USE_MOCK_MODE = import.meta.env.VITE_USE_MOCK_CLAUDE === 'true';
 
-type TopicData = {
+interface TopicData {
   question: string;
   pastAnswer: string;
   depthScore: number;
-};
-
-const MOCK_QUESTIONS: Record<string, TopicData> = {
-  'Vanishing Gradient Problem': {
-    question: 'Explain the vanishing gradient problem and why it makes training deep networks difficult.',
-    pastAnswer:
-      'The vanishing gradient problem happens when gradients become very small during backpropagation, making it hard for the network to learn. This is a problem in deep networks.',
-    depthScore: 3.5,
-  },
-  'Bayesian Inference': {
-    question: 'How does Bayesian inference differ from frequentist inference, and when would you prefer it?',
-    pastAnswer:
-      'Bayesian inference uses prior beliefs and updates them with data to get a posterior distribution. Frequentist inference uses only the data without priors.',
-    depthScore: 4.0,
-  },
-  'Attention Mechanisms': {
-    question: 'Describe how attention mechanisms work in transformer models.',
-    pastAnswer:
-      'Attention mechanisms allow the model to focus on relevant parts of the input. In transformers, queries, keys, and values are computed and attention scores determine importance.',
-    depthScore: 4.5,
-  },
-  'Regularization Trade-offs': {
-    question: 'What are the trade-offs between L1 and L2 regularization?',
-    pastAnswer:
-      'L1 regularization creates sparse weights and L2 keeps weights small. L1 is good for feature selection and L2 prevents overfitting in general.',
-    depthScore: 3.0,
-  },
-};
-
-const MOCK_FOLLOW_UP: Record<string, FollowUpResult> = {
-  'Vanishing Gradient Problem': {
-    followup_question:
-      'You said gradients become "very small" — what is the precise mathematical reason this happens in networks with sigmoid activations, and how does the chain rule expose it?',
-    weak_point_targeted: 'Mathematical mechanism of gradient decay through sigmoid derivatives',
-    deep_answer_covers: [
-      'Sigmoid derivative is bounded between 0 and 0.25',
-      'Chain rule multiplies these small values through each layer',
-      'Exponential decay with depth',
-    ],
-    score_if_passed: 5.0,
-    score_if_failed: 1.5,
-  },
-  'Bayesian Inference': {
-    followup_question:
-      'You mentioned "prior beliefs" — how do you choose a prior in practice, and what happens when your prior is wrong?',
-    weak_point_targeted: 'Prior selection and sensitivity analysis',
-    deep_answer_covers: [
-      'Conjugate priors for computational convenience',
-      'Informative vs uninformative priors',
-      'Prior-likelihood conflict and posterior robustness',
-    ],
-    score_if_passed: 5.5,
-    score_if_failed: 2.0,
-  },
-  'Attention Mechanisms': {
-    followup_question:
-      'You described query-key-value attention — what is the computational complexity of self-attention with respect to sequence length, and why does this matter?',
-    weak_point_targeted: 'Quadratic complexity scaling with sequence length',
-    deep_answer_covers: [
-      'O(n²) time and space complexity',
-      'Implications for long documents',
-      'Solutions like sparse attention or linear attention',
-    ],
-    score_if_passed: 6.0,
-    score_if_failed: 2.5,
-  },
-  'Regularization Trade-offs': {
-    followup_question:
-      'You said L1 is "good for feature selection" — can you explain geometrically why L1 produces sparse solutions while L2 does not?',
-    weak_point_targeted: 'Geometric intuition for sparsity via L1 ball corners',
-    deep_answer_covers: [
-      'L1 ball has corners aligned with axes',
-      'Contours of loss function intersect corners, zeroing out features',
-      'L2 ball is smooth — no preference for axis-aligned solutions',
-    ],
-    score_if_passed: 4.5,
-    score_if_failed: 1.0,
-  },
-};
+}
 
 const MOCK_PASS_EVAL: DefenseEvaluation = {
   passed: true,
@@ -126,20 +51,27 @@ export const CrossExamination: React.FC = () => {
   const [evaluation, setEvaluation] = useState<DefenseEvaluation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [verdictVisible, setVerdictVisible] = useState(false);
+  
+  const [mistakeVault, setMistakeVault] = useState<Record<string, MistakeDetail[]>>({});
+  const [activeMistake, setActiveMistake] = useState<TopicData | null>(null);
 
   const defenseRef = useRef<HTMLTextAreaElement>(null);
   const verdictRef = useRef<HTMLDivElement>(null);
   const verdictTimerRef = useRef<number | null>(null);
 
-  const currentEntry: TopicData | null =
-    MOCK_QUESTIONS[selectedTopic] ??
-    (selectedTopic
-      ? {
-          question: `Explain the concept of ${selectedTopic} in depth.`,
-          pastAnswer: `${selectedTopic} is an important concept in machine learning that affects model performance.`,
-          depthScore: 4,
-        }
-      : null);
+  // Load mistakes from Firebase on mount
+  useEffect(() => {
+    const fetchMistakes = async () => {
+      try {
+        const attempts = await getUserQuizAttempts();
+        const analytics = deriveStudentAnalytics(attempts);
+        setMistakeVault(analytics.mistakeVault);
+      } catch (err) {
+        console.error("[CrossExam] Failed to load history for mistake vault:", err);
+      }
+    };
+    fetchMistakes();
+  }, []);
 
   const clearVerdictTimer = () => {
     if (verdictTimerRef.current !== null) {
@@ -159,28 +91,41 @@ export const CrossExamination: React.FC = () => {
     clearVerdictTimer();
 
     try {
-      const entry =
-        MOCK_QUESTIONS[topic] ??
-        ({
-          question: `Explain the concept of ${topic} in depth.`,
-          pastAnswer: `${topic} is an important concept in machine learning that affects model performance.`,
-          depthScore: 4,
-        } as TopicData);
+      // Pick a real mistake from the vault
+      const options = mistakeVault[topic] || [];
+      const mistake = options.length > 0 
+        ? options[Math.floor(Math.random() * options.length)]
+        : null;
+
+      const entry: TopicData = mistake 
+        ? {
+            question: mistake.question,
+            pastAnswer: mistake.userAnswer,
+            depthScore: 4.5 // Default starting depth for mistake probing
+          }
+        : {
+            question: `Explain the fundamental concepts of ${topic}.`,
+            pastAnswer: `${topic} is a key topic that I have been studying in this course.`,
+            depthScore: 4
+          };
+
+      setActiveMistake(entry);
+      console.log(`[CrossExam] Selected factual source for probing:`, entry);
 
       let fu: FollowUpResult;
 
       if (USE_MOCK_MODE) {
         await new Promise((r) => setTimeout(r, 1200));
-        fu =
-          MOCK_FOLLOW_UP[topic] ??
-          ({
-            followup_question: `Can you explain more precisely why ${topic} is considered a fundamental challenge?`,
+        const entry = activeMistake || { question: "", pastAnswer: "", depthScore: 4 };
+        fu = {
+            followup_question: `[MOCK] Can you explain more precisely why ${topic} is considered a fundamental challenge?`,
             weak_point_targeted: 'Depth of conceptual understanding',
             deep_answer_covers: ['Core mechanism', 'Mathematical basis', 'Practical implications'],
             score_if_passed: Math.min(entry.depthScore + 1.5, 10),
             score_if_failed: Math.max(entry.depthScore - 2, 0),
-          } as FollowUpResult);
+          };
       } else {
+        const entry = activeMistake || { question: "", pastAnswer: "", depthScore: 4 };
         fu = await generateFollowUp(entry.question, entry.pastAnswer, entry.depthScore);
       }
 
@@ -193,7 +138,7 @@ export const CrossExamination: React.FC = () => {
   };
 
   const handleSubmitDefense = async () => {
-    if (!defenseText.trim() || !followUpData || !currentEntry) return;
+    if (!defenseText.trim() || !followUpData || !activeMistake) return;
 
     setPhase('evaluating');
     setError(null);
@@ -213,8 +158,8 @@ export const CrossExamination: React.FC = () => {
         ev = defenseText.length > 80 && matched >= 1 ? MOCK_PASS_EVAL : MOCK_FAIL_EVAL;
       } else {
         ev = await evaluateDefense(
-          currentEntry.question,
-          currentEntry.pastAnswer,
+          activeMistake.question,
+          activeMistake.pastAnswer,
           followUpData.followup_question,
           defenseText,
           followUpData.deep_answer_covers
@@ -233,15 +178,38 @@ export const CrossExamination: React.FC = () => {
 
       adjustReadinessScore(adjustment);
 
+      const record = {
+        userId: USER_ID,
+        topic: selectedTopic,
+        originalQuestion: activeMistake.question,
+        originalAnswer: activeMistake.pastAnswer,
+        followUpQuestion: followUpData.followup_question,
+        defenseAnswer: defenseText,
+        passed: ev.passed,
+        verdictLabel: ev.verdict_label,
+        scoreAdjustment: adjustment,
+        strength: ev.strength,
+        whatRight: ev.what_they_got_right,
+        whatMissed: ev.what_they_missed
+      };
+
       addCrossExamRecord({
-        originalQuestion: currentEntry.question,
-        originalAnswer: currentEntry.pastAnswer,
+        originalQuestion: activeMistake.question,
+        originalAnswer: activeMistake.pastAnswer,
         followUpQuestion: followUpData.followup_question,
         defenseAnswer: defenseText,
         passed: ev.passed,
         verdictLabel: ev.verdict_label,
         scoreAdjustment: adjustment,
       });
+      
+      // Persist to Firebase
+      try {
+        console.log(`[CrossExam] Persistence started for topic: ${selectedTopic}`);
+        await saveCrossExamAttempt(record);
+      } catch (persistenceError) {
+        console.error("[CrossExam] Persistence failed:", persistenceError);
+      }
 
       requestAnimationFrame(() => {
         verdictTimerRef.current = window.setTimeout(() => {
@@ -348,7 +316,7 @@ export const CrossExamination: React.FC = () => {
       )}
 
       {(phase === 'follow-up' || phase === 'defense' || phase === 'evaluating' || phase === 'verdict') &&
-        currentEntry &&
+        activeMistake &&
         followUpData && (
           <div className="exam-flow">
             <div className="exam-topic-label">
@@ -357,7 +325,7 @@ export const CrossExamination: React.FC = () => {
 
             <div className="past-answer-group">
               <p className="section-micro-label">Your past answer</p>
-              <blockquote className="past-answer-box">{currentEntry.pastAnswer}</blockquote>
+              <blockquote className="past-answer-box">{activeMistake.pastAnswer}</blockquote>
             </div>
 
             <div className="follow-up-card">

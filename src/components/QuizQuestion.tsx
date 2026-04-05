@@ -11,6 +11,13 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, disable
   const [inputValue, setInputValue] = useState('');
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
 
+  // Reset state when question changes
+  React.useEffect(() => {
+    setInputValue('');
+    setSelectedOption(null);
+    console.log(`[QuizQuestion] Question changed to ${question.id}. Answer state reset.`);
+  }, [question.id]);
+
   const handleMcqSubmit = (option: string) => {
     if (disabled) return;
     setSelectedOption(option);

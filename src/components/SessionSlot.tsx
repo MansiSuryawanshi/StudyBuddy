@@ -11,6 +11,7 @@ interface SessionSlotProps {
   topicTag: string;
   duration: string;
   badgeType: BadgeType;
+  rationale?: string | null;
   isLast?: boolean;
 }
 
@@ -32,6 +33,7 @@ export const SessionSlot: React.FC<SessionSlotProps> = ({
   topicTag,
   duration,
   badgeType,
+  rationale,
   isLast = false,
 }) => {
   return (
@@ -45,12 +47,24 @@ export const SessionSlot: React.FC<SessionSlotProps> = ({
         {time}
       </span>
 
-      {/* Label + topic pill */}
-      <div className="flex-1 flex items-center gap-2 flex-wrap">
-        <span className="text-sm text-white font-medium">{label}</span>
-        <span className="text-xs px-2 py-0.5 rounded-full bg-white/[0.06] text-gray-400 whitespace-nowrap">
-          {topicTag}
-        </span>
+      {/* Label + topic pill + Rationale */}
+      <div className="flex-1 flex flex-col gap-1 justify-center">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm text-white font-medium leading-none">{label}</span>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-white/[0.06] text-gray-400 whitespace-nowrap">
+            {topicTag}
+          </span>
+        </div>
+        
+        {/* Factual rationale (if exists) */}
+        {rationale && (
+          <div className="flex items-center gap-1.5 opacity-80 mt-0.5">
+            <span className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">Evidence:</span>
+            <span className="text-[11px] text-purple-300 italic truncate max-w-[200px]">
+              {rationale}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Badge + duration */}
