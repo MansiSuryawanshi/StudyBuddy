@@ -14,6 +14,7 @@ export interface GeneratedQuestion {
 
 import { ANTHROPIC_MODEL } from "../config/aiConfig";
 
+const CLAUDE_URL = '/anthropic/v1/messages';
 
 /**
  * Generates a quiz from the provided study material using the Claude API.
@@ -21,10 +22,11 @@ import { ANTHROPIC_MODEL } from "../config/aiConfig";
 export async function generateQuizFromContent(content: string, questionCount: number = 5): Promise<GeneratedQuestion[]> {
   const apiKey = import.meta.env.VITE_CLAUDE_API_KEY;
   
-  console.log(`Using Anthropic model: ${ANTHROPIC_MODEL}`);
-  console.log(`[QuizService] Generating ${questionCount} questions using model: ${ANTHROPIC_MODEL}`);
+  console.group(`[QuizService] Generation Pipeline Started`);
+  console.log(`Step 1: Model check. Using: ${ANTHROPIC_MODEL}`);
+  console.log(`Step 2: Content check. Length: ${content.length} characters.`);
+  console.log(`Step 3: Requesting ${questionCount} questions...`);
 
-  
   const prompt = `
     You are an expert educational content generator. Analyze the following study material and generate a high-quality quiz.
     
@@ -52,9 +54,14 @@ export async function generateQuizFromContent(content: string, questionCount: nu
        ]
   `;
 
-
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    if (!apiKey) {
+      console.warn("Step 4.FAIL: No Claude API Key found. Triggering fallback...");
+      console.groupEnd();
+      return generateFallbackQuiz(content, questionCount);
+    }
+
+    const response = await fetch(CLAUDE_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -64,7 +71,6 @@ export async function generateQuizFromContent(content: string, questionCount: nu
       },
       body: JSON.stringify({
         model: ANTHROPIC_MODEL,
-
         max_tokens: 2000,
         messages: [{ role: "user", content: prompt }],
       }),
@@ -72,21 +78,84 @@ export async function generateQuizFromContent(content: string, questionCount: nu
 
     if (!response.ok) {
       const errorBody = await response.text();
-      throw new Error(`Claude API error ${response.status}: ${errorBody}`);
+      console.warn(`Step 4.FAIL: API ${response.status} Error. Triggering fallback...`);
+      console.error(errorBody);
+      console.groupEnd();
+      return generateFallbackQuiz(content, questionCount);
     }
 
     const data = await response.json();
     const text: string = data.content[0].text;
-
+    
     // Strip markdown fences if present
     const cleaned = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
     const parsed: GeneratedQuestion[] = JSON.parse(cleaned);
 
+    console.log(`Step 4.SUCCESS: Received ${parsed.length} questions from AI.`);
+    console.groupEnd();
     return parsed;
+
   } catch (error) {
-    console.error("Error generating quiz: ", error);
-    throw error;
+    console.warn("Step 4.CRITICAL: Pipeline crashed. Triggering emergency fallback...");
+    console.error(error);
+    console.groupEnd();
+    return generateFallbackQuiz(content, questionCount);
   }
+}
+
+/**
+ * Deterministic fallback generator for when AI fails.
+ * Parses content locally to extract basic terminology and concepts.
+ */
+export async function generateFallbackQuiz(content: string, count: number): Promise<GeneratedQuestion[]> {
+  console.log(`[QuizService-Fallback] Rule-based extraction starting for ${count} questions...`);
+  
+  // Simple heuristic: find sentences that look like definitions (contain "is", "defined as", ":")
+  const sentences = content.split(/[.!?]/).map(s => s.trim()).filter(s => s.length > 20);
+  const questions: GeneratedQuestion[] = [];
+
+  for (let i = 0; i < Math.min(count, sentences.length); i++) {
+    const s = sentences[i];
+    const words = s.split(' ');
+    
+    if (i % 2 === 0 && words.length > 5) {
+      // Create a Short Answer question
+      questions.push({
+        id: `fb-q${i}`,
+        type: 'short_answer',
+        question: `Based on your material, explain the significance or meaning of: "${words.slice(0, 3).join(' ')}..."`,
+        correctAnswer: s,
+        explanation: "This question was derived directly from your study notes as an AI fallback.",
+        sourceTopic: "Extracted Content"
+      });
+    } else {
+      // Create a dummy MCQ to maintain flow
+      questions.push({
+        id: `fb-q${i}`,
+        type: 'mcq',
+        question: `True or False: The following statement is directly from your notes: "${s.slice(0, 60)}..."`,
+        options: ["True", "False", "Partially True", "Not in material"],
+        correctAnswer: "True",
+        explanation: "This verification question ensures you are reviewing the core text even if the AI is offline.",
+        sourceTopic: "Material Review"
+      });
+    }
+  }
+
+  // If no content is found, use generic study questions
+  if (questions.length === 0) {
+    questions.push({
+      id: "fb-gen-1",
+      type: "short_answer",
+      question: "Summary Challenge: In your own words, what is the most important concept in the material you just uploaded?",
+      correctAnswer: "Refer to your original notes for the specific core concepts.",
+      explanation: "Active recall is the best way to anchor new knowledge.",
+      sourceTopic: "Overview"
+    });
+  }
+
+  console.log(`[QuizService-Fallback] SUCCESS: Generated ${questions.length} deterministic questions.`);
+  return questions;
 }
 
 /**
@@ -116,7 +185,7 @@ export async function generateClaudeCompetitorAnswers(
   `;
 
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch(CLAUDE_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -131,12 +200,14 @@ export async function generateClaudeCompetitorAnswers(
       }),
     });
 
+    if (!response.ok) return {};
+
     const data = await response.json();
     const text: string = data.content[0].text;
     const cleaned = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
     return JSON.parse(cleaned);
   } catch (error) {
-    console.error("[QuizService] Error generating Claude answers:", error);
+    console.error("[QuizService] Error generating Claude answers (Competitor):", error);
     return {};
   }
 }

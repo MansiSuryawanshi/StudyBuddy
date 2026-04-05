@@ -12,7 +12,7 @@ import {
   USER_ID,
   type StudyDocument 
 } from '../services/firebaseService';
-import { generateQuizFromContent, generateClaudeCompetitorAnswers } from '../services/quizService';
+import { generateQuizFromContent, generateClaudeCompetitorAnswers, generateFallbackQuiz } from '../services/quizService';
 import { evaluateShortAnswer } from '../services/claudeService';
 import { useStore } from '../store/store';
 import QuizQuestion from './QuizQuestion';
@@ -62,6 +62,7 @@ const ReasoningChallenge: React.FC = () => {
   const [activeReviewPlayer, setActiveReviewPlayer] = useState<string>(USER_ID);
   const [isSoloMode, setIsSoloMode] = useState(false);
   const [savedAttemptId, setSavedAttemptId] = useState<string | null>(null);
+  const [generationError, setGenerationError] = useState<string | null>(null);
 
   const { currentQuiz, setQuiz, clearQuizAnswers } = useStore();
   const timerRef = useRef<any>(null);
@@ -267,8 +268,36 @@ const ReasoningChallenge: React.FC = () => {
         }})
       });
 
-    } catch (error) {
-      console.error("[Challenge] Global start failed:", error);
+    } catch (error: any) {
+      console.group("[Challenge-Pipeline] Generation CRITICAL FAILURE");
+      console.error(error);
+      setGenerationError(error?.message || "Remote API Timeout or Connection Reset");
+      setPhase('generation-error');
+      console.groupEnd();
+    }
+  };
+
+  const handleUseFallback = async () => {
+    if (!session) return;
+    console.log(`[Challenge] User opted for Fallback Generation.`);
+    setPhase('loading');
+    setLoadingStep('generating');
+    
+    try {
+      const selectedDocs = documents.filter(d => session.docIds.includes(d.id!));
+      const combinedContent = selectedDocs.map(d => d.rawText).join('\n\n---\n\n');
+      
+      console.log(`[Challenge] Requesting rule-based fallback from QuizService...`);
+      const questions = await generateFallbackQuiz(combinedContent, session.questionCount);
+      
+      await updateSession(session.id, {
+        questions,
+        status: 'active',
+        claudeCompetitor: true // Force competitor for fallbacks
+      });
+      console.log(`[Challenge] Fallback quiz active.`);
+    } catch (err) {
+      console.error("[Challenge] Fallback also failed.", err);
       setPhase('generation-error');
     }
   };
@@ -297,8 +326,11 @@ const ReasoningChallenge: React.FC = () => {
         feedback = evalResult.feedback;
         console.log(`[Challenge] Evaluation result: ${finalIsCorrect ? 'CORRECT' : 'INCORRECT'}`);
       } catch (err) {
-        console.error("[Challenge] Grading failed. Defaulting to false.", err);
-        finalIsCorrect = false;
+        console.warn("[Challenge] Grading failed. Using simple text match fallback.");
+        const normUser = answer.toLowerCase().trim();
+        const normCorrect = currentQuestion.correctAnswer.toLowerCase().trim();
+        finalIsCorrect = normUser === normCorrect || normUser.includes(normCorrect) || normCorrect.includes(normUser);
+        feedback = "Result based on simple text matching due to evaluation timeout.";
       }
       setPhase('quiz');
     }
@@ -790,9 +822,36 @@ const ReasoningChallenge: React.FC = () => {
 
   if (phase === 'generation-error') {
     return (
-      <div className="max-w-2xl mx-auto py-20 text-center animate-fade-in">
+      <div className="max-w-2xl mx-auto py-20 px-6 text-center animate-fade-in">
+        <div className="w-20 h-20 bg-red-500/10 rounded-[2rem] flex items-center justify-center mx-auto mb-8 border-2 border-red-500/20 text-red-400 rotate-12 shadow-2xl shadow-red-500/10">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        </div>
         <h2 className="text-3xl font-black mb-4 text-white">AI Generation Failed</h2>
-        <button onClick={() => setPhase('selection')} className="btn-outline px-8 py-4 rounded-2xl font-bold">Back</button>
+        <div className="p-4 rounded-2xl bg-white/5 border border-white/10 mb-8 text-sm text-gray-400 font-mono italic">
+          "{generationError || "Unknown connection error"}"
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          <button 
+            onClick={handleStartChallenge} 
+            className="btn-premium px-8 py-4 rounded-2xl font-black text-lg transition-all"
+          >
+            Retry AI Generation
+          </button>
+          <button 
+            onClick={handleUseFallback} 
+            className="bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 px-8 py-4 rounded-2xl font-black text-lg transition-all"
+          >
+            Use Fallback Quiz (Instant)
+          </button>
+        </div>
+        
+        <button 
+          onClick={() => setPhase('selection')} 
+          className="text-gray-500 font-bold hover:text-white transition-colors"
+        >
+          ← Back to Setup
+        </button>
       </div>
     );
   }
